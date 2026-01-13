@@ -1,5 +1,5 @@
 
-### this kernel is working mdm_helper(kickstart)
+### This kernel is working mdm_helper(kickstart)
 after start mdm_helper, generated device  
 ```
  /dev/ttyUSB0
