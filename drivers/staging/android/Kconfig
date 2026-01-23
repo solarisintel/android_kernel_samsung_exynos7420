@@ -8,31 +8,6 @@ config ANDROID
 
 if ANDROID
 
-config ANDROID_BINDER_DEVICES
-	string "Android Binder devices"
-	depends on ANDROID_BINDER_IPC
-	default "binder,hwbinder,vndbinder"
-	---help---
-	  Default value for the binder.devices parameter.
-
-	  The binder.devices parameter is a comma-separated list of strings
-	  that specifies the names of the binder device nodes that will be
-	  created. Each binder device has its own context manager, and is
-	  therefore logically separated from the other devices.
-
-config ANDROID_BINDER_IPC_32BIT
-	bool
-	depends on !64BIT && ANDROID_BINDER_IPC
-	default y
-	---help---
-	  The Binder API has been changed to support both 32 and 64bit
-	  applications in a mixed environment.
-
-	  Enable this to support an old 32-bit Android user-space (v4.4 and
-	  earlier).
-
-	  Note that enabling this will break newer Android user-space.
-
 config ASHMEM
 	bool "Enable the Anonymous Shared Memory Subsystem"
 	default n
@@ -44,24 +19,6 @@ config ASHMEM
 
 	  It is, in theory, a good memory allocator for low-memory devices,
 	  because it can discard shared memory units when under memory pressure.
-
-config ANDROID_LOGGER
-	tristate "Android log driver"
-	default n
-	depends on !EXYNOS_SNAPSHOT_PSTORE
-	---help---
-	  This adds support for system-wide logging using four log buffers.
-
-	  These are:
-
-	      1: main
-	      2: events
-	      3: radio
-	      4: system
-
-	  Log reading and writing is performed via normal Linux reads and
-	  optimized writes. This optimization avoids logging having too
-	  much overhead in the system.
 
 config ANDROID_TIMED_OUTPUT
 	bool "Timed output class driver"

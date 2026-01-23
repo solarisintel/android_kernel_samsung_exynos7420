@@ -166,8 +166,6 @@ struct devfreq {
 
 	unsigned long min_freq;
 	unsigned long max_freq;
-	bool is_boost_device;
-	bool max_boost;
 	bool stop_polling;
 
 	/* information for device freqeuncy transition */
@@ -254,9 +252,6 @@ struct devfreq_simple_exynos_data {
 };
 #endif
 
-/* Caution: devfreq->lock must be locked before calling update_devfreq */
-extern int update_devfreq(struct devfreq *devfreq);
-
 #else /* !CONFIG_PM_DEVFREQ */
 static inline struct devfreq *devfreq_add_device(struct device *dev,
 					  struct devfreq_dev_profile *profile,
@@ -295,11 +290,6 @@ static inline int devfreq_register_opp_notifier(struct device *dev,
 
 static inline int devfreq_unregister_opp_notifier(struct device *dev,
 					   struct devfreq *devfreq)
-{
-	return -EINVAL;
-}
-
-static inline int update_devfreq(struct devfreq *devfreq)
 {
 	return -EINVAL;
 }

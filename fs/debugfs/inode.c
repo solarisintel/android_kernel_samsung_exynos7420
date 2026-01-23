@@ -545,7 +545,7 @@ void debugfs_remove_recursive(struct dentry *dentry)
 	parent = dentry;
  down:
 	mutex_lock(&parent->d_inode->i_mutex);
-	list_for_each_entry_safe(child, next, &parent->d_subdirs, d_u.d_child) {
+	list_for_each_entry_safe(child, next, &parent->d_subdirs, d_child) {
 		if (!debugfs_positive(child))
 			continue;
 
@@ -566,8 +566,8 @@ void debugfs_remove_recursive(struct dentry *dentry)
 	mutex_lock(&parent->d_inode->i_mutex);
 
 	if (child != dentry) {
-		next = list_entry(child->d_u.d_child.next, struct dentry,
-					d_u.d_child);
+		next = list_entry(child->d_child.next, struct dentry,
+					d_child);
 		goto up;
 	}
 
@@ -601,7 +601,7 @@ struct dentry *debugfs_rename(struct dentry *old_dir, struct dentry *old_dentry,
 {
 	int error;
 	struct dentry *dentry = NULL, *trap;
-	const char *old_name;
+	struct name_snapshot old_name;
 
 	trap = lock_rename(new_dir, old_dir);
 	/* Source or destination directories don't exist? */
@@ -616,19 +616,19 @@ struct dentry *debugfs_rename(struct dentry *old_dir, struct dentry *old_dentry,
 	if (IS_ERR(dentry) || dentry == trap || dentry->d_inode)
 		goto exit;
 
-	old_name = fsnotify_oldname_init(old_dentry->d_name.name);
+	take_dentry_name_snapshot(&old_name, old_dentry);
 
 	error = simple_rename(old_dir->d_inode, old_dentry, new_dir->d_inode,
 		dentry);
 	if (error) {
-		fsnotify_oldname_free(old_name);
+		release_dentry_name_snapshot(&old_name);
 		goto exit;
 	}
 	d_move(old_dentry, dentry);
-	fsnotify_move(old_dir->d_inode, new_dir->d_inode, old_name,
+	fsnotify_move(old_dir->d_inode, new_dir->d_inode, old_name.name,
 		S_ISDIR(old_dentry->d_inode->i_mode),
 		NULL, old_dentry);
-	fsnotify_oldname_free(old_name);
+	release_dentry_name_snapshot(&old_name);
 	unlock_rename(new_dir, old_dir);
 	dput(dentry);
 	return old_dentry;

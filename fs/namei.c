@@ -404,7 +404,8 @@ int __inode_permission2(struct vfsmount *mnt, struct inode *inode, int mask)
 	if (retval)
 		return retval;
 
-	return security_inode_permission(inode, mask);
+	retval = security_inode_permission(inode, mask);
+	return retval;
 }
 EXPORT_SYMBOL(__inode_permission2);
 
@@ -461,7 +462,6 @@ int inode_permission(struct inode *inode, int mask)
 {
 	return inode_permission2(NULL, inode, mask);
 }
-EXPORT_SYMBOL(inode_permission);
 
 /**
  * path_get - get a reference to a path
@@ -1907,8 +1907,8 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 	nd->flags = flags | LOOKUP_JUMPED;
 	nd->depth = 0;
 	if (flags & LOOKUP_ROOT) {
-		struct inode *inode = nd->root.dentry->d_inode;
 		struct vfsmount *mnt = nd->root.mnt;
+		struct inode *inode = nd->root.dentry->d_inode;
 		if (*name) {
 			if (!can_lookup(inode))
 				return -ENOTDIR;
@@ -2049,16 +2049,6 @@ static int path_lookupat(int dfd, const char *name,
 		if (!can_lookup(nd->inode)) {
 			path_put(&nd->path);
 			err = -ENOTDIR;
-		}
-	}
-
-	if (!err) {
-		struct super_block *sb = nd->inode->i_sb;
-		if (sb->s_flags & MS_RDONLY) {
-			if (d_is_su(nd->path.dentry) && !su_visible()) {
-				path_put(&nd->path);
-				err = -ENOENT;
-			}
 		}
 	}
 
@@ -2219,7 +2209,6 @@ struct dentry *lookup_one_len(const char *name, struct dentry *base, int len)
 {
 	return lookup_one_len2(name, NULL, base, len);
 }
-EXPORT_SYMBOL(lookup_one_len);
 
 int user_path_at_empty(int dfd, const char __user *name, unsigned flags,
 		 struct path *path, int *empty)
@@ -2309,7 +2298,7 @@ static inline int check_sticky(struct inode *dir, struct inode *inode)
  * 10. We don't allow removal of NFS sillyrenamed files; it's handled by
  *     nfs_async_unlink().
  */
-static int may_delete(struct vfsmount *mnt, struct inode *dir,struct dentry *victim,int isdir)
+static int may_delete(struct vfsmount *mnt, struct inode *dir, struct dentry *victim, int isdir)
 {
 	int error;
 
@@ -2427,7 +2416,6 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 {
 	return vfs_create2(NULL, dir, dentry, mode, want_excl);
 }
-EXPORT_SYMBOL(vfs_create);
 
 static int may_open(struct path *path, int acc_mode, int flag)
 {
@@ -3251,7 +3239,6 @@ int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 {
 	return vfs_mknod2(NULL, dir, dentry, mode, dev);
 }
-EXPORT_SYMBOL(vfs_mknod);
 
 static int may_mknod(umode_t mode)
 {
@@ -3293,11 +3280,11 @@ retry:
 		goto out;
 	switch (mode & S_IFMT) {
 		case 0: case S_IFREG:
-			error = vfs_create2(path.mnt, path.dentry->d_inode,dentry,mode,true);
+			error = vfs_create2(path.mnt, path.dentry->d_inode, dentry, mode, true);
 			break;
 		case S_IFCHR: case S_IFBLK:
-			error = vfs_mknod2(path.mnt, path.dentry->d_inode,dentry,mode,
-					new_decode_dev(dev));
+			error = vfs_mknod2(path.mnt, path.dentry->d_inode, dentry, mode,
+ 					new_decode_dev(dev));
 			break;
 		case S_IFIFO: case S_IFSOCK:
 			error = vfs_mknod(path.dentry->d_inode,dentry,mode,0);
@@ -3347,7 +3334,6 @@ int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	return vfs_mkdir2(NULL, dir, dentry, mode);
 }
-EXPORT_SYMBOL(vfs_mkdir);
 
 SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
 {
@@ -3439,13 +3425,12 @@ out:
 		d_delete(dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_rmdir2);
 
 int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
 	return vfs_rmdir2(NULL, dir, dentry);
 }
-EXPORT_SYMBOL(vfs_rmdir);
+EXPORT_SYMBOL(vfs_rmdir2);
 
 static long do_rmdir(int dfd, const char __user *pathname)
 {
@@ -3454,7 +3439,7 @@ static long do_rmdir(int dfd, const char __user *pathname)
 	struct dentry *dentry;
 	struct nameidata nd;
 	unsigned int lookup_flags = 0;
-#if ANDROID_VERSION >= 60000
+#if ANDROID_VERSION >= 60000 && ANDROID_VERSION < 80000 
 	char *path_buf = NULL;
 	char *propagate_path = NULL;
 #endif
@@ -3492,7 +3477,7 @@ retry:
 	error = security_path_rmdir(&nd.path, dentry);
 	if (error)
 		goto exit3;
-#if ANDROID_VERSION >= 60000
+#if ANDROID_VERSION >= 60000 && ANDROID_VERSION < 80000 
 	if (nd.path.dentry->d_sb->s_op->unlink_callback) {
 		path_buf = kmalloc(PATH_MAX, GFP_KERNEL);
 		propagate_path = dentry_path_raw(dentry, path_buf, PATH_MAX);
@@ -3503,7 +3488,7 @@ exit3:
 	dput(dentry);
 exit2:
 	mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
-#if ANDROID_VERSION >= 60000
+#if ANDROID_VERSION >= 60000 && ANDROID_VERSION < 80000 
 	if (path_buf && !error) {
 		nd.path.dentry->d_sb->s_op->unlink_callback(nd.path.dentry->d_sb,
 			propagate_path);
@@ -3566,7 +3551,6 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	return vfs_unlink2(NULL, dir, dentry);
 }
-EXPORT_SYMBOL(vfs_unlink);
 
 /*
  * Make sure that the actual truncation of the file will occur outside its
@@ -3582,7 +3566,7 @@ static long do_unlinkat(int dfd, const char __user *pathname)
 	struct nameidata nd;
 	struct inode *inode = NULL;
 	unsigned int lookup_flags = 0;
-#if ANDROID_VERSION >= 60000
+#if ANDROID_VERSION >= 60000 && ANDROID_VERSION < 80000 
 	char *path_buf = NULL;
 	char *propagate_path = NULL;
 #endif
@@ -3610,7 +3594,7 @@ retry:
 		inode = dentry->d_inode;
 		if (!inode)
 			goto slashes;
-#if ANDROID_VERSION >= 60000
+#if ANDROID_VERSION >= 60000 && ANDROID_VERSION < 80000 
 		if (inode->i_sb->s_op->unlink_callback) {
 			path_buf = kmalloc(PATH_MAX, GFP_KERNEL);
 			propagate_path = dentry_path_raw(dentry, path_buf, PATH_MAX);
@@ -3625,7 +3609,7 @@ exit2:
 		dput(dentry);
 	}
 	mutex_unlock(&nd.path.dentry->d_inode->i_mutex);
-#if ANDROID_VERSION >= 60000
+#if ANDROID_VERSION >= 60000 && ANDROID_VERSION < 80000 
 	if (path_buf && !error) {
 		inode->i_sb->s_op->unlink_callback(inode->i_sb, propagate_path);
 	}
@@ -3694,7 +3678,6 @@ int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
 {
 	return vfs_symlink2(NULL, dir, dentry, oldname);
 }
-EXPORT_SYMBOL(vfs_symlink);
 
 SYSCALL_DEFINE3(symlinkat, const char __user *, oldname,
 		int, newdfd, const char __user *, newname)
@@ -3781,7 +3764,6 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 {
 	return vfs_link2(NULL, old_dentry, dir, new_dentry);
 }
-EXPORT_SYMBOL(vfs_link);
 
 /*
  * Hardlinks are often used in delicate situations.  We avoid
@@ -3881,9 +3863,9 @@ SYSCALL_DEFINE2(link, const char __user *, oldname, const char __user *, newname
  *	   ->i_mutex on parents, which works but leads to some truly excessive
  *	   locking].
  */
-static int vfs_rename_dir(struct vfsmount *mnt,
-	       struct inode *old_dir, struct dentry *old_dentry,
-	       struct inode *new_dir, struct dentry *new_dentry)
+static int vfs_rename_dir(struct vfsmount *mnt, 
+			  struct inode *old_dir, struct dentry *old_dentry,
+			  struct inode *new_dir, struct dentry *new_dentry)
 {
 	int error = 0;
 	struct inode *target = new_dentry->d_inode;
@@ -3970,12 +3952,12 @@ out:
 }
 
 int vfs_rename2(struct vfsmount *mnt,
-	       struct inode *old_dir, struct dentry *old_dentry,
+		   struct inode *old_dir, struct dentry *old_dentry,
 	       struct inode *new_dir, struct dentry *new_dentry)
 {
 	int error;
 	int is_dir = S_ISDIR(old_dentry->d_inode->i_mode);
-	const unsigned char *old_name;
+	struct name_snapshot old_name;
 
 	if (old_dentry->d_inode == new_dentry->d_inode)
  		return 0;
@@ -3994,27 +3976,27 @@ int vfs_rename2(struct vfsmount *mnt,
 	if (!old_dir->i_op->rename)
 		return -EPERM;
 
-	old_name = fsnotify_oldname_init(old_dentry->d_name.name);
+	take_dentry_name_snapshot(&old_name, old_dentry);
 
 	if (is_dir)
 		error = vfs_rename_dir(mnt, old_dir,old_dentry,new_dir,new_dentry);
 	else
 		error = vfs_rename_other(old_dir,old_dentry,new_dir,new_dentry);
 	if (!error)
-		fsnotify_move(old_dir, new_dir, old_name, is_dir,
+		fsnotify_move(old_dir, new_dir, old_name.name, is_dir,
 			      new_dentry->d_inode, old_dentry);
-	fsnotify_oldname_free(old_name);
+	release_dentry_name_snapshot(&old_name);
 
 	return error;
 }
 EXPORT_SYMBOL(vfs_rename2);
 
 int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
-	       struct inode *new_dir, struct dentry *new_dentry)
+	       struct inode *new_dir, struct dentry *new_dentry
+	       )
 {
 	return vfs_rename2(NULL, old_dir, old_dentry, new_dir, new_dentry);
 }
-EXPORT_SYMBOL(vfs_rename);
 
 SYSCALL_DEFINE4(renameat, int, olddfd, const char __user *, oldname,
 		int, newdfd, const char __user *, newname)
@@ -4271,6 +4253,7 @@ EXPORT_SYMBOL(follow_down);
 EXPORT_SYMBOL(follow_up);
 EXPORT_SYMBOL(get_write_access); /* nfsd */
 EXPORT_SYMBOL(lock_rename);
+EXPORT_SYMBOL(lookup_one_len);
 EXPORT_SYMBOL(page_follow_link_light);
 EXPORT_SYMBOL(page_put_link);
 EXPORT_SYMBOL(page_readlink);
@@ -4279,9 +4262,18 @@ EXPORT_SYMBOL(page_symlink);
 EXPORT_SYMBOL(page_symlink_inode_operations);
 EXPORT_SYMBOL(kern_path);
 EXPORT_SYMBOL(vfs_path_lookup);
+EXPORT_SYMBOL(inode_permission);
 EXPORT_SYMBOL(unlock_rename);
+EXPORT_SYMBOL(vfs_create);
 EXPORT_SYMBOL(vfs_follow_link);
+EXPORT_SYMBOL(vfs_link);
+EXPORT_SYMBOL(vfs_mkdir);
+EXPORT_SYMBOL(vfs_mknod);
 EXPORT_SYMBOL(generic_permission);
 EXPORT_SYMBOL(vfs_readlink);
+EXPORT_SYMBOL(vfs_rename);
+EXPORT_SYMBOL(vfs_rmdir);
+EXPORT_SYMBOL(vfs_symlink);
+EXPORT_SYMBOL(vfs_unlink);
 EXPORT_SYMBOL(dentry_unhash);
 EXPORT_SYMBOL(generic_readlink);

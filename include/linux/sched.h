@@ -3,8 +3,6 @@
 
 #include <uapi/linux/sched.h>
 
-#include <linux/sched/prio.h>
-
 
 struct sched_param {
 	int sched_priority;
@@ -56,11 +54,6 @@ struct sched_param {
 #include <linux/gfp.h>
 
 #include <asm/processor.h>
-int  su_instances(void);
-bool su_running(void);
-bool su_visible(void);
-void su_exec(void);
-void su_exit(void);
 
 struct exec_domain;
 struct futex_pi_state;
@@ -783,50 +776,6 @@ enum cpu_idle_type {
 #define SCHED_POWER_SCALE	(1L << SCHED_POWER_SHIFT)
 
 /*
- * Wake-queues are lists of tasks with a pending wakeup, whose
- * callers have already marked the task as woken internally,
- * and can thus carry on. A common use case is being able to
- * do the wakeups once the corresponding user lock as been
- * released.
- *
- * We hold reference to each task in the list across the wakeup,
- * thus guaranteeing that the memory is still valid by the time
- * the actual wakeups are performed in wake_up_q().
- *
- * One per task suffices, because there's never a need for a task to be
- * in two wake queues simultaneously; it is forbidden to abandon a task
- * in a wake queue (a call to wake_up_q() _must_ follow), so if a task is
- * already in a wake queue, the wakeup will happen soon and the second
- * waker can just skip it.
- *
- * The WAKE_Q macro declares and initializes the list head.
- * wake_up_q() does NOT reinitialize the list; it's expected to be
- * called near the end of a function, where the fact that the queue is
- * not used again will be easy to see by inspection.
- *
- * Note that this can cause spurious wakeups. schedule() callers
- * must ensure the call is done inside a loop, confirming that the
- * wakeup condition has in fact occurred.
- */
-struct wake_q_node {
-	struct wake_q_node *next;
-};
-
-struct wake_q_head {
-	struct wake_q_node *first;
-	struct wake_q_node **lastp;
-};
-
-#define WAKE_Q_TAIL ((struct wake_q_node *) 0x01)
-
-#define WAKE_Q(name)					\
-	struct wake_q_head name = { WAKE_Q_TAIL, &name.first }
-
-extern void wake_q_add(struct wake_q_head *head,
-		       struct task_struct *task);
-extern void wake_up_q(struct wake_q_head *head);
-
-/*
  * sched-domains (multiprocessor balancing) declarations:
  */
 #ifdef CONFIG_SMP
@@ -1021,14 +970,6 @@ struct sched_avg {
 #endif
 	u32 usage_avg_sum;
 };
-
-#ifdef CONFIG_SCHED_HMP
-/*
- * We want to avoid boosting any processes forked from init (PID 1)
- * and kthreadd (assumed to be PID 2).
- */
-#define hmp_task_should_forkboost(task) ((task->parent && task->parent->pid > 2))
-#endif
 
 #ifdef CONFIG_SCHEDSTATS
 struct sched_statistics {
@@ -1342,8 +1283,6 @@ struct task_struct {
 
 	/* Protection of the PI data structures: */
 	raw_spinlock_t pi_lock;
-
-	struct wake_q_node wake_q;
 
 #ifdef CONFIG_RT_MUTEXES
 	/* PI waiters blocked on a rt_mutex held by this task */
@@ -1757,8 +1696,6 @@ extern int task_free_unregister(struct notifier_block *n);
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP	0x40000000	/* Freezer should not count it as freezable */
 #define PF_WAKE_UP_IDLE 0x80000000	/* try to wake up on an idle CPU */
-
-#define PF_SU		0x00000002      /* task is su */
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other

@@ -154,7 +154,7 @@ static int selinux_set_mapping(struct policydb *pol,
 		}
 
 		k = 0;
-		while (p_in->perms && p_in->perms[k]) {
+		while (p_in->perms[k]) {
 			/* An empty permission string skips ahead */
 			if (!*p_in->perms[k]) {
 				k++;
@@ -771,6 +771,12 @@ out:
 	kfree(o);
 	kfree(n);
 	kfree(t);
+
+#if defined(SELINUX_ALWAYS_ENFORCE)
+	selinux_enforcing = 1;
+#elif defined(SELINUX_ALWAYS_PERMISSIVE)
+	selinux_enforcing = 0;
+#endif
 
 	if (!selinux_enforcing)
 		return 0;
@@ -1531,6 +1537,12 @@ out:
 	kfree(t);
 	kfree(n);
 
+#if defined(SELINUX_ALWAYS_ENFORCE)
+	selinux_enforcing = 1;
+#elif defined(SELINUX_ALWAYS_PERMISSIVE)
+	selinux_enforcing = 0;
+#endif
+
 	if (!selinux_enforcing)
 		return 0;
 	return -EACCES;
@@ -1821,6 +1833,12 @@ static inline int convert_context_handle_invalid_context(struct context *context
 {
 	char *s;
 	u32 len;
+
+#if defined(SELINUX_ALWAYS_ENFORCE)
+	selinux_enforcing = 1;
+#elif defined(SELINUX_ALWAYS_PERMISSIVE)
+	selinux_enforcing = 0;
+#endif
 
 	if (selinux_enforcing)
 		return -EINVAL;
@@ -2534,6 +2552,7 @@ int security_fs_use(
 {
 	int rc = 0;
 	struct ocontext *c;
+	u32 tmpsid;
 
 	read_lock(&policy_rwlock);
 
@@ -2548,7 +2567,8 @@ int security_fs_use(
 		*behavior = c->v.behavior;
 		if (!c->sid[0]) {
 			rc = sidtab_context_to_sid(&sidtab, &c->context[0],
-						   &c->sid[0]);
+						   &tmpsid);
+			c->sid[0] = tmpsid;
 			if (rc)
 				goto out;
 		}

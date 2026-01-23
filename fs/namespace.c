@@ -265,6 +265,11 @@ static struct mount *alloc_vfsmnt(const char *name)
 		mnt->mnt_count = 1;
 		mnt->mnt_writers = 0;
 #endif
+#ifdef CONFIG_RKP_NS_PROT
+		mnt->mnt->data = NULL;
+#else
+		mnt->mnt.data = NULL;
+#endif
 
 		INIT_LIST_HEAD(&mnt->mnt_hash);
 		INIT_LIST_HEAD(&mnt->mnt_child);
@@ -672,7 +677,11 @@ int sb_prepare_remount_readonly(struct super_block *sb)
 
 static void free_vfsmnt(struct mount *mnt)
 {
+#ifdef CONFIG_RKP_NS_PROT
+	kfree(mnt->mnt->data);
+#else
 	kfree(mnt->mnt.data);
+#endif
 	kfree(mnt->mnt_devname);
 	mnt_free_id(mnt);
 #ifdef CONFIG_SMP
@@ -944,12 +953,16 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 	mnt = alloc_vfsmnt(name);
 	if (!mnt)
 		return ERR_PTR(-ENOMEM);
-
-	mnt->mnt.data = NULL;
 	if (type->alloc_mnt_data) {
+#ifdef CONFIG_RKP_NS_PROT
+		mnt->mnt->data = type->alloc_mnt_data();
+		if (!mnt->mnt->data) 
+		{
+#else
 		mnt->mnt.data = type->alloc_mnt_data();
-		if (!mnt->mnt.data) {
-			mnt_free_id(mnt);
+		if (!mnt->mnt.data)
+		{
+#endif
 			free_vfsmnt(mnt);
 			return ERR_PTR(-ENOMEM);
 		}
@@ -957,13 +970,14 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 	if (flags & MS_KERNMOUNT) {
 #ifdef CONFIG_RKP_NS_PROT
 		rkp_set_mnt_flags(mnt->mnt,MNT_INTERNAL);
+	}
+	root = mount_fs(type, flags, name, mnt->mnt, data);
 #else
 		mnt->mnt.mnt_flags = MNT_INTERNAL;
-#endif
 	}
 	root = mount_fs(type, flags, name, &mnt->mnt, data);
+#endif
 	if (IS_ERR(root)) {
-		kfree(mnt->mnt.data);
 		free_vfsmnt(mnt);
 		return ERR_CAST(root);
 	}
@@ -1006,11 +1020,19 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 		return ERR_PTR(-ENOMEM);
 
 	if (sb->s_op->clone_mnt_data) {
+#ifdef CONFIG_RKP_NS_PROT
+		mnt->mnt->data = sb->s_op->clone_mnt_data(old->mnt->data);
+		if (!mnt->mnt->data) {
+			err = -ENOMEM;
+			goto out_free;
+		}
+#else
 		mnt->mnt.data = sb->s_op->clone_mnt_data(old->mnt.data);
 		if (!mnt->mnt.data) {
 			err = -ENOMEM;
 			goto out_free;
 		}
+#endif
 	}
 
 	if (flag & (CL_SLAVE | CL_PRIVATE | CL_SHARED_TO_SLAVE))
@@ -1102,7 +1124,6 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	return mnt;
 
  out_free:
-	kfree(mnt->mnt.data);
 	free_vfsmnt(mnt);
 	return ERR_PTR(err);
 }
@@ -1714,7 +1735,7 @@ struct vfsmount *collect_mounts(struct path *path)
 		tree = ERR_PTR(-EINVAL);
 	else
 		tree = copy_tree(real_mount(path->mnt), path->dentry,
-				CL_COPY_ALL | CL_PRIVATE);
+				 CL_COPY_ALL | CL_PRIVATE);
 	namespace_unlock();
 	if (IS_ERR(tree))
 		return ERR_CAST(tree);
@@ -2113,7 +2134,13 @@ static int do_remount(struct path *path, int flags, int mnt_flags,
 	if ((mnt->mnt.mnt_flags & MNT_LOCK_NODEV) &&
 #endif
 	    !(mnt_flags & MNT_NODEV)) {
-		return -EPERM;
+		/* Was the nodev implicitly added in mount? */
+		if ((mnt->mnt_ns->user_ns != &init_user_ns) &&
+		    !(sb->s_type->fs_flags & FS_USERNS_DEV_MOUNT)) {
+			mnt_flags |= MNT_NODEV;
+		} else {
+			return -EPERM;
+		}
 	}
 #ifdef CONFIG_RKP_NS_PROT
 	if ((mnt->mnt->mnt_flags & MNT_LOCK_NOSUID) &&

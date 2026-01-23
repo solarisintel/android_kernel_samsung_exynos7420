@@ -62,6 +62,7 @@ void get_derived_permission_new(struct dentry *parent, struct dentry *dentry,
 	int err;
 	struct qstr q_Android = QSTR_LITERAL("Android");
 	struct qstr q_data = QSTR_LITERAL("data");
+	struct qstr q_sandbox = QSTR_LITERAL("sandbox");
 	struct qstr q_obb = QSTR_LITERAL("obb");
 	struct qstr q_media = QSTR_LITERAL("media");
 	struct qstr q_cache = QSTR_LITERAL("cache");
@@ -108,6 +109,9 @@ void get_derived_permission_new(struct dentry *parent, struct dentry *dentry,
 		break;
 	case PERM_ANDROID:
 		if (qstr_case_eq(name, &q_data)) {
+			/* App-specific directories inside; let anyone traverse */
+			info->data->perm = PERM_ANDROID_DATA;
+		} else if (qstr_case_eq(name, &q_sandbox)) {
 			/* App-specific directories inside; let anyone traverse */
 			info->data->perm = PERM_ANDROID_DATA;
 		} else if (qstr_case_eq(name, &q_obb)) {
@@ -293,7 +297,7 @@ static void __fixup_perms_recursive(struct dentry *dentry, struct limit_search *
 	info = SDCARDFS_I(dentry->d_inode);
 
 	if (needs_fixup(info->data->perm)) {
-		list_for_each_entry(child, &dentry->d_subdirs, d_u.d_child) {
+		list_for_each_entry(child, &dentry->d_subdirs, d_child) {
 			spin_lock_nested(&child->d_lock, depth + 1);
 			if (!(limit->flags & BY_NAME) || qstr_case_eq(&child->d_name, &limit->name)) {
 				if (child->d_inode) {
@@ -306,7 +310,7 @@ static void __fixup_perms_recursive(struct dentry *dentry, struct limit_search *
 			spin_unlock(&child->d_lock);
 		}
 	} else if (descendant_may_need_fixup(info->data, limit)) {
-		list_for_each_entry(child, &dentry->d_subdirs, d_u.d_child) {
+		list_for_each_entry(child, &dentry->d_subdirs, d_child) {
 			__fixup_perms_recursive(child, limit, depth + 1);
 		}
 	}
@@ -349,7 +353,8 @@ int need_graft_path(struct dentry *dentry)
 	struct sdcardfs_sb_info *sbi = SDCARDFS_SB(dentry->d_sb);
 	struct qstr obb = QSTR_LITERAL("obb");
 
-	if (parent_info->data->perm == PERM_ANDROID &&
+	if (!sbi->options.unshared_obb &&
+			parent_info->data->perm == PERM_ANDROID &&
 			qstr_case_eq(&dentry->d_name, &obb)) {
 
 		/* /Android/obb is the base obbpath of DERIVED_UNIFIED */

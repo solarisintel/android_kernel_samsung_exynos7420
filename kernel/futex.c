@@ -155,36 +155,6 @@ struct futex_hash_bucket {
 
 static struct futex_hash_bucket futex_queues[1<<FUTEX_HASHBITS];
 
-static inline void futex_get_mm(union futex_key *key)
-{
-	atomic_inc(&key->private.mm->mm_count);
-	/*
-	 * Ensure futex_get_mm() implies a full barrier such that
-	 * get_futex_key() implies a full barrier. This is relied upon
-	 * as full barrier (B), see the ordering comment above.
-	 */
-	smp_mb__after_atomic_inc();
-}
-
-static inline bool hb_waiters_pending(struct futex_hash_bucket *hb)
-{
-#ifdef CONFIG_SMP
-	/*
-	 * Tasks trying to enter the critical region are most likely
-	 * potential waiters that will be added to the plist. Ensure
-	 * that wakers won't miss to-be-slept tasks in the window between
-	 * the wait call and the actual plist_add.
-	 */
-	if (spin_is_locked(&hb->lock))
-		return true;
-	smp_rmb(); /* Make sure we check the lock state first */
-
-	return !plist_head_empty(&hb->chain);
-#else
-	return true;
-#endif
-}
-
 /*
  * We hash on the keys returned from get_futex_key (see below).
  */
@@ -219,10 +189,10 @@ static void get_futex_key_refs(union futex_key *key)
 
 	switch (key->both.offset & (FUT_OFF_INODE|FUT_OFF_MMSHARED)) {
 	case FUT_OFF_INODE:
-		ihold(key->shared.inode); /* implies MB (B) */
+		ihold(key->shared.inode);
 		break;
 	case FUT_OFF_MMSHARED:
-		futex_get_mm(key); /* implies MB (B) */
+		atomic_inc(&key->private.mm->mm_count);
 		break;
 	}
 }
@@ -295,7 +265,7 @@ get_futex_key(u32 __user *uaddr, int fshared, union futex_key *key, int rw)
 			return -EFAULT;
 		key->private.mm = mm;
 		key->private.address = address;
-		get_futex_key_refs(key);  /* implies MB (B) */
+		get_futex_key_refs(key);
 		return 0;
 	}
 
@@ -402,7 +372,7 @@ again:
 		key->shared.pgoff = basepage_index(page);
 	}
 
-	get_futex_key_refs(key); /* implies MB (B) */
+	get_futex_key_refs(key);
 
 out:
 	unlock_page(page_head);
@@ -975,11 +945,9 @@ static void __unqueue_futex(struct futex_q *q)
 
 /*
  * The hash bucket lock must be held when this is called.
- * Afterwards, the futex_q must not be accessed. Callers
- * must ensure to later call wake_up_q() for the actual
- * wakeups to occur.
+ * Afterwards, the futex_q must not be accessed.
  */
-static void mark_wake_futex(struct wake_q_head *wake_q, struct futex_q *q)
+static void wake_futex(struct futex_q *q)
 {
 	struct task_struct *p = q->task;
 
@@ -987,10 +955,14 @@ static void mark_wake_futex(struct wake_q_head *wake_q, struct futex_q *q)
 		return;
 
 	/*
-	 * Queue the task for later wakeup for after we've released
-	 * the hb->lock. wake_q_add() grabs reference to p.
+	 * We set q->lock_ptr = NULL _before_ we wake up the task. If
+	 * a non-futex wake up happens on another CPU then the task
+	 * might exit and p would dereference a non-existing task
+	 * struct. Prevent this by holding a reference on p across the
+	 * wake up.
 	 */
-	wake_q_add(wake_q, p);
+	get_task_struct(p);
+
 	__unqueue_futex(q);
 	/*
 	 * The waiting task can free the futex_q as soon as
@@ -1000,6 +972,9 @@ static void mark_wake_futex(struct wake_q_head *wake_q, struct futex_q *q)
 	 */
 	smp_wmb();
 	q->lock_ptr = NULL;
+
+	wake_up_state(p, TASK_NORMAL);
+	put_task_struct(p);
 }
 
 static int wake_futex_pi(u32 __user *uaddr, u32 uval, struct futex_q *this)
@@ -1114,7 +1089,6 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 	struct plist_head *head;
 	union futex_key key = FUTEX_KEY_INIT;
 	int ret;
-	WAKE_Q(wake_q);
 
 	if (!bitset)
 		return -EINVAL;
@@ -1127,10 +1101,6 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 	spin_lock(&hb->lock);
 	head = &hb->chain;
 
-	/* Make sure we really have tasks to wakeup */
-	if (!hb_waiters_pending(hb))
-		goto out_put_key;
-
 	plist_for_each_entry_safe(this, next, head, list) {
 		if (match_futex (&this->key, &key)) {
 			if (this->pi_state || this->rt_waiter) {
@@ -1142,15 +1112,13 @@ futex_wake(u32 __user *uaddr, unsigned int flags, int nr_wake, u32 bitset)
 			if (!(this->bitset & bitset))
 				continue;
 
-			mark_wake_futex(&wake_q, this);
+			wake_futex(this);
 			if (++ret >= nr_wake)
 				break;
 		}
 	}
 
 	spin_unlock(&hb->lock);
-	wake_up_q(&wake_q);
-        out_put_key:
 	put_futex_key(&key);
 out:
 	return ret;
@@ -1169,7 +1137,6 @@ futex_wake_op(u32 __user *uaddr1, unsigned int flags, u32 __user *uaddr2,
 	struct plist_head *head;
 	struct futex_q *this, *next;
 	int ret, op_ret;
-	WAKE_Q(wake_q);
 
 retry:
 	ret = get_futex_key(uaddr1, flags & FLAGS_SHARED, &key1, VERIFY_READ);
@@ -1223,7 +1190,7 @@ retry_private:
 				ret = -EINVAL;
 				goto out_unlock;
 			}
-			mark_wake_futex(&wake_q, this);
+			wake_futex(this);
 			if (++ret >= nr_wake)
 				break;
 		}
@@ -1239,7 +1206,7 @@ retry_private:
 					ret = -EINVAL;
 					goto out_unlock;
 				}
-				mark_wake_futex(&wake_q, this);
+				wake_futex(this);
 				if (++op_ret >= nr_wake2)
 					break;
 			}
@@ -1249,7 +1216,6 @@ retry_private:
 
 out_unlock:
 	double_unlock_hb(hb1, hb2);
-	wake_up_q(&wake_q);
 out_put_keys:
 	put_futex_key(&key2);
 out_put_key1:
@@ -1408,7 +1374,9 @@ static int futex_requeue(u32 __user *uaddr1, unsigned int flags,
 	struct futex_hash_bucket *hb1, *hb2;
 	struct plist_head *head1;
 	struct futex_q *this, *next;
-	WAKE_Q(wake_q);
+
+	if (nr_wake < 0 || nr_requeue < 0)
+		return -EINVAL;
 
 	if (requeue_pi) {
 		/*
@@ -1582,7 +1550,7 @@ retry_private:
 		 * woken by futex_unlock_pi().
 		 */
 		if (++task_count <= nr_wake && !requeue_pi) {
-			mark_wake_futex(&wake_q, this);
+			wake_futex(this);
 			continue;
 		}
 
@@ -1638,7 +1606,6 @@ out_put_key1:
 out:
 	if (pi_state != NULL)
 		free_pi_state(pi_state);
-	wake_up_q(&wake_q);
 	return ret ? ret : task_count;
 }
 
@@ -1651,7 +1618,7 @@ static inline struct futex_hash_bucket *queue_lock(struct futex_q *q)
 	hb = hash_futex(&q->key);
 	q->lock_ptr = &hb->lock;
 
-	spin_lock(&hb->lock); /* implies MB (A) */
+	spin_lock(&hb->lock);
 	return hb;
 }
 
@@ -1713,7 +1680,8 @@ static int unqueue_me(struct futex_q *q)
 
 	/* In the common case we don't take the spinlock, which is nice. */
 retry:
-	lock_ptr = READ_ONCE(q->lock_ptr);
+	lock_ptr = q->lock_ptr;
+	barrier();
 	if (lock_ptr != NULL) {
 		spin_lock(lock_ptr);
 		/*

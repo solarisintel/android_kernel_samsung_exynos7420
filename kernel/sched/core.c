@@ -5,8 +5,6 @@
  *
  *  Copyright (C) 1991-2002  Linus Torvalds
  *
- *  Copyright (c) 2014, NVIDIA CORPORATION.  All rights reserved.
- *
  *  1996-12-23  Modified by Dave Grothe to fix bugs in semaphores and
  *		make semaphores SMP safe
  *  1998-11-19	Implemented schedule_timeout() and related stuff
@@ -78,6 +76,20 @@
 #include <linux/cpufreq.h>
 #include <linux/exynos-ss.h>
 
+#include <linux/sched/sysctl.h>
+#include <linux/kernel.h>
+#include <linux/kthread.h>
+#include <linux/mutex.h>
+#include <linux/workqueue.h>
+#include <linux/cpufreq.h>
+#include <linux/platform_device.h>
+#include <linux/err.h>
+#include <linux/of.h>
+#include <linux/sysfs.h>
+#include <linux/sec_sysfs.h>
+#include <linux/types.h>
+#include <linux/cpumask.h>
+
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
 #include <asm/irq_regs.h>
@@ -94,6 +106,8 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+
+#define HEAVY_TASK_LOAD_THRESHOLD 1000
 
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
@@ -113,38 +127,6 @@ void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 		__hrtimer_start_range_ns(period_timer, soft, delta,
 					 HRTIMER_MODE_ABS_PINNED, 0);
 	}
-}
-
-static atomic_t __su_instances;
-
-int su_instances(void)
-{
-	return atomic_read(&__su_instances);
-}
-
-bool su_running(void)
-{
-	return su_instances() > 0;
-}
-
-bool su_visible(void)
-{
-	kuid_t uid = current_uid();
-	if (su_running())
-		return true;
-	if (uid_eq(uid, GLOBAL_ROOT_UID) || uid_eq(uid, GLOBAL_SYSTEM_UID))
-		return true;
-	return false;
-}
-
-void su_exec(void)
-{
-	atomic_inc(&__su_instances);
-}
-
-void su_exit(void)
-{
-	atomic_dec(&__su_instances);
 }
 
 DEFINE_MUTEX(sched_domains_mutex);
@@ -540,54 +522,8 @@ static inline void init_hrtick(void)
 }
 #endif	/* CONFIG_SCHED_HRTICK */
 
-void wake_q_add(struct wake_q_head *head, struct task_struct *task)
-{
-	struct wake_q_node *node = &task->wake_q;
-
-	/*
-	 * Atomically grab the task, if ->wake_q is !nil already it means
-	 * its already queued (either by us or someone else) and will get the
-	 * wakeup due to that.
-	 *
-	 * This cmpxchg() implies a full barrier, which pairs with the write
-	 * barrier implied by the wakeup in wake_up_list().
-	 */
-	if (cmpxchg(&node->next, NULL, WAKE_Q_TAIL))
-		return;
-
-	get_task_struct(task);
-
-	/*
-	 * The head is context local, there can be no concurrency.
-	 */
-	*head->lastp = node;
-	head->lastp = &node->next;
-}
-
-void wake_up_q(struct wake_q_head *head)
-{
-	struct wake_q_node *node = head->first;
-
-	while (node != WAKE_Q_TAIL) {
-		struct task_struct *task;
-
-		task = container_of(node, struct task_struct, wake_q);
-		BUG_ON(!task);
-		/* task can safely be re-inserted now */
-		node = node->next;
-		task->wake_q.next = NULL;
-
-		/*
-		 * wake_up_process() implies a wmb() to pair with the queueing
-		 * in wake_q_add() so as not to miss wakeups.
-		 */
-		wake_up_process(task);
-		put_task_struct(task);
-	}
-}
-
 /*
- * resched_curr - mark rq's current task 'to be rescheduled now'.
+ * resched_task - mark a task 'to be rescheduled now'.
  *
  * On UP this means the setting of the need_resched flag, on SMP it
  * might also involve a cross-CPU call to trigger the scheduler on
@@ -1161,10 +1097,9 @@ unsigned long wait_task_inactive(struct task_struct *p, long match_state)
 		 * is actually now running somewhere else!
 		 */
 		while (task_running(rq, p)) {
-			if (match_state && unlikely(cpu_relaxed_read_long
-				(&(p->state)) != match_state))
+			if (match_state && unlikely(p->state != match_state))
 				return 0;
-			cpu_read_relax();
+			cpu_relax();
 		}
 
 		/*
@@ -1488,7 +1423,7 @@ static void sched_ttwu_pending(void)
 
 void scheduler_ipi(void)
 {
-	if (llist_empty_relaxed(&this_rq()->wake_list)
+	if (llist_empty(&this_rq()->wake_list)
 			&& !tick_nohz_full_cpu(smp_processor_id())
 			&& !got_nohz_idle_kick())
 		return;
@@ -1627,8 +1562,8 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 	 * If the owning (remote) cpu is still in the middle of schedule() with
 	 * this task as prev, wait until its done referencing the task.
 	 */
-	while (cpu_relaxed_read(&(p->on_cpu)))
-		cpu_read_relax();
+	while (p->on_cpu)
+		cpu_relax();
 	/*
 	 * Pairs with the smp_wmb() in finish_lock_switch().
 	 */
@@ -1760,18 +1695,8 @@ static void __sched_fork(struct task_struct *p)
 #if defined(CONFIG_SMP) && defined(CONFIG_FAIR_GROUP_SCHED)
 	p->se.avg.remainder = 0;
 #ifdef CONFIG_SCHED_HMP
-	/* keep LOAD_AVG_MAX in sync with fair.c if load avg series is changed */
-#define LOAD_AVG_MAX 47742
 	p->se.avg.hmp_last_up_migration = 0;
 	p->se.avg.hmp_last_down_migration = 0;
-	if (hmp_task_should_forkboost(p)) {
-		p->se.avg.load_avg_ratio = 1023;
-		p->se.avg.load_avg_contrib =
-				(1023 * scale_load_down(p->se.load.weight));
-		p->se.avg.runnable_avg_period = LOAD_AVG_MAX;
-		p->se.avg.runnable_avg_sum = LOAD_AVG_MAX;
-		p->se.avg.usage_avg_sum = LOAD_AVG_MAX;
-	}
 #else
 	p->se.avg.runnable_avg_period = 0;
 	p->se.avg.runnable_avg_sum = 0;
@@ -2922,6 +2847,88 @@ void scheduler_tick(void)
 	rq_last_tick_reset(rq);
 }
 
+#ifdef NR_CPUS
+static unsigned int heavy_cpu_count = NR_CPUS;
+#else
+static unsigned int heavy_cpu_count = 8;
+#endif
+
+static ssize_t heavy_task_cpu_show(struct device *dev,
+    struct device_attribute *attr, char *buf)
+{
+    int count = 0;
+    long unsigned int task_util;
+    long unsigned int cfs_load;
+    long unsigned int no_task;
+    long unsigned int remaining_load;
+    long unsigned int avg_load;
+    int cpu;
+
+    for_each_cpu(cpu, cpu_online_mask)
+    {
+        struct rq *rq = cpu_rq(cpu);
+        struct task_struct *p = rq->curr;
+        task_util = (long unsigned int)p->se.avg.load_avg_contrib;
+        cfs_load = (long unsigned int)rq->cfs.runnable_load_avg;
+        no_task = (long unsigned int)rq->cfs.h_nr_running;
+
+        if(task_util > HEAVY_TASK_LOAD_THRESHOLD)
+        {
+            count ++;
+        }
+        else if(task_util <= HEAVY_TASK_LOAD_THRESHOLD && no_task > 1)
+        {
+            remaining_load = cfs_load - task_util;
+            avg_load = remaining_load / (no_task-1);
+            if(avg_load > HEAVY_TASK_LOAD_THRESHOLD)
+                count++; 
+        }
+    }
+
+    heavy_cpu_count = count;
+
+    return snprintf(buf, 4, "%d\n", heavy_cpu_count);
+}
+
+static ssize_t heavy_task_cpu_store(struct device *dev,
+    struct device_attribute *attr, const char *buf, size_t size)
+{
+    sscanf(buf, "%d", &heavy_cpu_count);
+
+    return size;
+}
+
+static DEVICE_ATTR(heavy_task_cpu, 0664, heavy_task_cpu_show, heavy_task_cpu_store);
+
+static struct attribute *bench_mark_attributes[] = {
+    &dev_attr_heavy_task_cpu.attr,
+    NULL
+};
+
+static const struct attribute_group bench_mark_attr_group = {
+    .attrs = bench_mark_attributes,
+};
+
+int __init sched_heavy_cpu_init(void)
+{
+    int ret = 0;
+    struct device *dev;
+
+    dev = sec_device_create(NULL, "sec_heavy_cpu");
+
+    if (IS_ERR(dev)) {
+        dev_err(dev, "%s: fail to create sec_dev\n", __func__);
+        return PTR_ERR(dev);
+    }
+    ret = sysfs_create_group(&dev->kobj, &bench_mark_attr_group);
+    if (ret) {
+        dev_err(dev, "failed to create sysfs group\n");
+    }
+
+    return 0;
+}
+late_initcall(sched_heavy_cpu_init);
+
 #ifdef CONFIG_NO_HZ_FULL
 /**
  * scheduler_tick_max_deferment
@@ -3873,7 +3880,7 @@ EXPORT_SYMBOL(set_user_nice);
 int can_nice(const struct task_struct *p, const int nice)
 {
 	/* convert nice value [19,-20] to rlimit style value [1,40] */
-	int nice_rlim = nice_to_rlimit(nice);
+	int nice_rlim = 20 - nice;
 
 	return (nice_rlim <= task_rlimit(p, RLIMIT_NICE) ||
 		capable(CAP_SYS_NICE));
@@ -3959,7 +3966,7 @@ int idle_cpu(int cpu)
 		return 0;
 
 #ifdef CONFIG_SMP
-	if (!llist_empty_relaxed(&rq->wake_list))
+	if (!llist_empty(&rq->wake_list))
 		return 0;
 #endif
 

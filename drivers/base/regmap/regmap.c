@@ -17,7 +17,6 @@
 #include <linux/err.h>
 #include <linux/rbtree.h>
 #include <linux/sched.h>
-#include <linux/delay.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/regmap.h>
@@ -30,10 +29,7 @@
  * sort of problem defining LOG_DEVICE will add printks for basic
  * register I/O on a specific device.
  */
-
 #undef LOG_DEVICE
-
-int moro_sound_write_hook(unsigned int reg, unsigned int val);
 
 static int _regmap_update_bits(struct regmap *map, unsigned int reg,
 			       unsigned int mask, unsigned int val,
@@ -1170,8 +1166,6 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 	int ret;
 	void *context = _regmap_map_get_context(map);
 
- 	val = moro_sound_write_hook(reg, val);
-
 	if (!map->cache_bypass && !map->defer_caching) {
 		ret = regcache_write(map, reg, val);
 		if (ret != 0)
@@ -1191,37 +1185,6 @@ int _regmap_write(struct regmap *map, unsigned int reg,
 
 	return map->reg_write(context, reg, val);
 }
-
-#ifdef CONFIG_MORO_SOUND
-int _regmap_write_nohook(struct regmap *map, unsigned int reg,
-		  unsigned int val)
-{
-	int ret;
-	void *context = _regmap_map_get_context(map);
-
-	if (!regmap_writeable(map, reg))
-		return -EIO;
-
-	if (!map->cache_bypass && !map->defer_caching) {
-		ret = regcache_write(map, reg, val);
-		if (ret != 0)
-			return ret;
-		if (map->cache_only) {
-			map->cache_dirty = true;
-			return 0;
-		}
-	}
-
-#ifdef LOG_DEVICE
-	if (map->dev && strcmp(dev_name(map->dev), LOG_DEVICE) == 0)
-		dev_info(map->dev, "%x <= %x\n", reg, val);
-#endif
-
-	trace_regmap_reg_write(map->dev, reg, val);
-
-	return map->reg_write(context, reg, val);
-}
-#endif
 
 /**
  * regmap_write(): Write a value to a single register
@@ -1358,7 +1321,7 @@ out:
 EXPORT_SYMBOL_GPL(regmap_bulk_write);
 
 static int _regmap_multi_reg_write(struct regmap *map,
-				   const struct reg_sequence *regs,
+				   const struct reg_default *regs,
 				   int num_regs)
 {
 	int i, ret;
@@ -1372,9 +1335,6 @@ static int _regmap_multi_reg_write(struct regmap *map,
 				regs[i].reg, regs[i].def, ret);
 			return ret;
 		}
-
-		if (regs[i].delay_us)
-			udelay(regs[i].delay_us);
 	}
 
 	return 0;
@@ -1396,7 +1356,7 @@ static int _regmap_multi_reg_write(struct regmap *map,
  * A value of zero will be returned on success, a negative errno will
  * be returned in error cases.
  */
-int regmap_multi_reg_write(struct regmap *map, const struct reg_sequence *regs,
+int regmap_multi_reg_write(struct regmap *map, const struct reg_default *regs,
 			   int num_regs)
 {
 	int ret;
@@ -1429,7 +1389,7 @@ EXPORT_SYMBOL_GPL(regmap_multi_reg_write);
  * be returned in error cases.
  */
 int regmap_multi_reg_write_bypassed(struct regmap *map,
-				    const struct reg_sequence *regs,
+				    const struct reg_default *regs,
 				    int num_regs)
 {
 	int ret;

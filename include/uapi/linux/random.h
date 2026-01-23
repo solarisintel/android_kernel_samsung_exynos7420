@@ -46,6 +46,7 @@ struct rnd_state {
 
 /* Exported functions */
 
+
 /*
  * Flags for getrandom(2)
  *

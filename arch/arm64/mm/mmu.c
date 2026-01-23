@@ -166,7 +166,7 @@ void *rkp_ro_alloc(void)
 	spin_lock_irqsave(&ro_rkp_pages_lock,flags);
 	
 	for (i = 0, j = ro_alloc_last; i < (RO_PAGES) ; i++) {
-		j =  (j+i) %(RO_PAGES); 
+		j =  (j+1) %(RO_PAGES); 
 		if (!ro_pages_stat[j]) {
 			ro_pages_stat[j] = 1;
 			ro_alloc_last = j+1;
@@ -416,9 +416,9 @@ static void __init map_mem(void)
 #ifdef CONFIG_KNOX_KAP
 	if (boot_mode_security) {
 #endif
-		vmm_extra_mem = early_alloc(0x600000);
+		vmm_extra_mem = early_alloc(0x800000);
 		/* Turn text boundries to page tables if needed */
-#if 0		
+#if 1		
 		/*Disable temprarly to prevent S1 page tables break down*/
 		if ((u64) _text & (~PMD_MASK)) {
 				start = (phys_addr_t) __pa(_text) & PMD_MASK;

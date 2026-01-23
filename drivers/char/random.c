@@ -258,8 +258,6 @@
 #include <linux/kmemcheck.h>
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
-#include <linux/syscalls.h>
-#include <linux/completion.h>
 
 #ifdef CONFIG_GENERIC_HARDIRQS
 # include <linux/irq.h>
@@ -270,6 +268,10 @@
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
 #include <asm/io.h>
+#include <linux/syscalls.h>
+#include <linux/completion.h>
+
+
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/random.h>
@@ -612,11 +614,10 @@ retry:
 		goto retry;
 
 	r->entropy_total += nbits;
-	if (!r->initialized && r->entropy_total > 128) {
-		r->initialized = 1;
-		r->entropy_total = 0;
-		if (r == &nonblocking_pool) {
-			wake_up_interruptible(&urandom_init_wait);
+	if (!r->initialized && nbits > 0) {
+		if (r->entropy_total > 128) {
+			r->initialized = 1;
+			r->entropy_total = 0;
 		}
 	}
 
@@ -707,6 +708,8 @@ void add_device_randomness(const void *buf, unsigned int size)
 }
 EXPORT_SYMBOL(add_device_randomness);
 
+static struct timer_rand_state input_timer_state;
+
 /*
  * This function adds entropy to the entropy "pool" by using timing
  * delays.  It uses the timer_rand_state structure to make an estimate
@@ -780,7 +783,16 @@ out:
 void add_input_randomness(unsigned int type, unsigned int code,
 				 unsigned int value)
 {
-	return;
+	static unsigned char last_value;
+
+	/* ignore autorepeat and the like */
+	if (value == last_value)
+		return;
+
+	last_value = value;
+	add_timer_randomness(&input_timer_state,
+			     (type << 4) ^ code ^ (code >> 4) ^ value);
+	trace_add_input_randomness(ENTROPY_BITS(&input_pool));
 }
 EXPORT_SYMBOL_GPL(add_input_randomness);
 
@@ -1069,13 +1081,14 @@ static ssize_t extract_entropy_user(struct entropy_store *r, void __user *buf,
 {
 	ssize_t ret = 0, i;
 	__u8 tmp[EXTRACT_SIZE];
+	int large_request = (nbytes > 256);
 
 	trace_extract_entropy_user(r->name, nbytes, ENTROPY_BITS(r), _RET_IP_);
 	xfer_secondary_pool(r, nbytes);
 	nbytes = account(r, nbytes, 0, 0);
 
 	while (nbytes) {
-		if (need_resched()) {
+		if (large_request && need_resched()) {
 			if (signal_pending(current)) {
 				if (ret == 0)
 					ret = -ERESTARTSYS;
@@ -1210,7 +1223,7 @@ void rand_initialize_disk(struct gendisk *disk)
 #endif
 
 static ssize_t
-_random_read(unsigned int flags, char __user *buf, size_t nbytes)
+_random_read(int nonblock, char __user *buf, size_t nbytes)
 {
 	ssize_t n;
 
@@ -1229,7 +1242,7 @@ _random_read(unsigned int flags, char __user *buf, size_t nbytes)
 			return n;
 		/* Pool is (near) empty.  Maybe wait and retry. */
 
-		if (flags & O_NONBLOCK)
+		if (nonblock)
 			return -EAGAIN;
 
 		wait_event_interruptible(random_read_wait,

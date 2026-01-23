@@ -57,7 +57,7 @@ int do_truncate2(struct vfsmount *mnt, struct dentry *dentry, loff_t length,
 		newattrs.ia_valid |= ret | ATTR_FORCE;
 
 	mutex_lock(&dentry->d_inode->i_mutex);
-	ret = notify_change2(mnt, dentry, &newattrs);
+	ret = notify_change2(mnt,dentry, &newattrs);
 	mutex_unlock(&dentry->d_inode->i_mutex);
 	return ret;
 }
@@ -692,6 +692,10 @@ static int do_dentry_open(struct file *f,
 		f->f_op = &empty_fops;
 		return 0;
 	}
+
+	if (S_ISREG(inode->i_mode))
+		f->f_mode |= FMODE_SPLICE_WRITE | FMODE_SPLICE_READ;
+
 
 	f->f_op = fops_get(inode->i_fop);
 

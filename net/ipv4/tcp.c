@@ -426,8 +426,8 @@ void tcp_init_sock(struct sock *sk)
 	sk->sk_rcvbuf = sysctl_tcp_rmem[1];
 
 #ifdef CONFIG_MPTCP
-	/* Set function pointers in tcp_sock to tcp functions. */
-	mptcp_init_tcp_sock(tp);
+	/* Initialize MPTCP-specific stuff and function-pointers */
+	mptcp_init_tcp_sock(sk);
 #endif
 
 	local_bh_disable();
@@ -2501,8 +2501,8 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tcp_clear_retrans(tp);
 	inet_csk_delack_init(sk);
 	/* Initialize rcv_mss to TCP_MIN_MSS to avoid division by 0
-	* issue in __tcp_select_window()
-	*/
+	 * issue in __tcp_select_window()
+	 */
 	icsk->icsk_ack.rcv_mss = TCP_MIN_MSS;
 	tcp_init_send_head(sk);
 	memset(&tp->rx_opt, 0, sizeof(tp->rx_opt));
@@ -2860,14 +2860,16 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 		break;
 #ifdef CONFIG_MPTCP
 	case MPTCP_ENABLED:
-		if (sk->sk_state == TCP_CLOSE || sk->sk_state == TCP_LISTEN) {
-			if (val)
-				tp->mptcp_enabled = 1;
-			else
-				tp->mptcp_enabled = 0;
-		} else {
+		if (mptcp_init_failed || !sysctl_mptcp_enabled ||
+		    sk->sk_state != TCP_CLOSE) {
 			err = -EPERM;
+			break;
 		}
+
+		if (val)
+			mptcp_enable_sock(sk);
+		else
+			mptcp_disable_sock(sk);
 		break;
 #endif
 	default:
@@ -3088,7 +3090,7 @@ static int do_tcp_getsockopt(struct sock *sk, int level,
 		break;
 #ifdef CONFIG_MPTCP
 	case MPTCP_ENABLED:
-		val = tp->mptcp_enabled;
+		val = sock_flag(sk, SOCK_MPTCP) ? 1 : 0;
 		break;
 #endif
 	default:

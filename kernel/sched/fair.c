@@ -1228,9 +1228,9 @@ struct hmp_global_attr {
 };
 
 #ifdef CONFIG_HMP_FREQUENCY_INVARIANT_SCALE
-#define HMP_DATA_SYSFS_MAX 20
+#define HMP_DATA_SYSFS_MAX 14
 #else
-#define HMP_DATA_SYSFS_MAX 19
+#define HMP_DATA_SYSFS_MAX 13
 #endif
 
 struct hmp_data_struct {
@@ -1290,7 +1290,6 @@ static u64 hmp_variable_scale_convert(u64 delta);
 #define SCHED_FREQSCALE_SHIFT 10
 struct cpufreq_extents {
 	u32 curr_scale;
-	u32 curr_index;
 	u32 cpufreq_min;
 	u32 cpufreq_max;
 	u32 thermal_min;
@@ -1590,167 +1589,6 @@ unsigned int hmp_down_threshold = 214;
 unsigned int hmp_semiboost_up_threshold = 400;
 unsigned int hmp_semiboost_down_threshold = 150;
 
-/* Global switch between power-aware migrations and classical GTS. */
-static unsigned int hmp_power_migration = 1;
-
-/* Performance threshold for guaranteeing an up migration. */
-static unsigned int hmp_up_perf_threshold = 597;
-
-/* Capacity floor for checking cluster perf and efficiency. */
-static unsigned int hmp_up_power_threshold = 341;
-
-/*
- * Nice-ness threshold after which HMP decides to migrate the task
- * to the fast cluster.
- *
- * default: -10
- */
-int hmp_nice_up_threshold = -10;
-
-#define hmp_task_below_nice_threshold(task) (task_nice(task) <= hmp_nice_up_threshold)
-
-/*
- * Maximum total capacity difference in load scale percentage to enact scheduler power migration.
- * 
- */
-#define UP_PERF_HYS_DEF		SCHED_LOAD_SCALE * 0.05
-#define DOWN_PERF_HYS_DEF	SCHED_LOAD_SCALE * 0.10
-static unsigned int hmp_up_perf_hysteresis = UP_PERF_HYS_DEF;
-static unsigned int hmp_down_perf_hysteresis = DOWN_PERF_HYS_DEF;
-
-#define NUM_CLUSTERS	2
-
-/*
- * Initializer values for bootup, will be re-calculated on when 
- * efficiency table is loaded.
- */
-
-static struct cpu_cluster_efficiency cpu_efficiency_table_defaults[] = { 
-	{ .arch_efficiency = 100, .n_p_states = 0, .p_states = NULL },
-	{ .arch_efficiency = 208, .n_p_states = 0, .p_states = NULL }
-};
-
-static struct cpu_cluster_efficiency *cpu_efficiency_table = cpu_efficiency_table_defaults;
-
-static struct cpu_p_state slow = { .capacity = 1, .efficiency = 10 };
-static struct cpu_p_state fast = { .capacity = 10, .efficiency = 1 };
-
-static unsigned int slow_step_ratio = 85;
-static unsigned int fast_step_ratio = 73;
-
-static unsigned int slow_cap_max = 50000;
-static unsigned int slow_cap_min = 10000;
-static unsigned int slow_cap_range = 40000;
-static unsigned int slow_cap_step = 10000;
-
-static unsigned int fast_cap_max = 100000;
-static unsigned int fast_cap_min = 60000;
-static unsigned int fast_cap_range = 30000;
-static unsigned int fast_cap_step = 10000;
-
-static unsigned int cap_max = 100000;
-static unsigned int cap_min = 10000;
-static unsigned int cap_range = 90000;
-
-void sched_update_cpu_efficiency_table(struct cpu_cluster_efficiency *ceff, 
-				       unsigned int cluster)
-{
-	int i, min, max, range, step;
-#ifdef DEBUG
-	int p;
-#endif
-	
-	cpu_efficiency_table[cluster] = *ceff;
-	
-	min = ceff->p_states[0].capacity;
-	max = ceff->p_states[0].capacity;
-	
-	for (i = 0; i < ceff->n_p_states; i++) {
-		if (ceff->p_states[i].capacity > max)
-			max = ceff->p_states[i].capacity;
-		
-		if (ceff->p_states[i].capacity < min)
-			min = ceff->p_states[i].capacity;
-	}
-	
-	range = max - min;
-	step = range / ceff->n_p_states;
-	
-	if (cluster) {
-		cap_max = max;
-		fast_cap_max = max;
-		fast_cap_min = min;
-		fast_cap_range = range;
-		fast_cap_step = step;
-		fast_step_ratio = SCHED_LOAD_SCALE / ceff->n_p_states;
-	} else {
-		cap_min = min;
-		slow_cap_max = max;
-		slow_cap_min = min;
-		slow_cap_range = range;
-		slow_cap_step = step;
-		slow_step_ratio = SCHED_LOAD_SCALE / ceff->n_p_states;
-	}
-	
-	cap_range = fast_cap_max - slow_cap_min;
-	
-#ifdef DEBUG
-	pr_debug("+++ CPU efficiency table dump +++\n");
-	for (i = 0; i < NUM_CLUSTERS; i++) {
-	pr_debug("+++ CPU cluster %d +++\n", i);
-		for (p = 0; p < cpu_efficiency_table[i].n_p_states; p++) {
-			pr_debug("Freq: %4d, power: %4d, capacity: %6d, efficiency: %4d\n", 
-				 cpu_efficiency_table[i].p_states[p].freq / 1000,
-				 cpu_efficiency_table[i].p_states[p].power,
-				 cpu_efficiency_table[i].p_states[p].capacity,
-				 cpu_efficiency_table[i].p_states[p].efficiency); 
-		}
-	}
-	pr_debug("+++ Control values dump +++\n");
-	pr_debug("slow step ratio: \t%d\n"
-		 "fast step ratio: \t%d\n"
-		 "slow cap max: \t%d\n"
-		 "slow cap min: \t%d\n"
-		 "slow cap range: \t%d\n"
-		 "slow cap step: \t%d\n"
-		 "fast cap max: \t%d\n"
-		 "fast cap min: \t%d\n"
-		 "fast cap range: \t%d\n"
-		 "fast cap step: \t%d\n"
-		 "cap max: \t%d\n"
-		 "cap min: \t%d\n"
-		 "cap range: \t%d\n",
-		 slow_step_ratio, fast_step_ratio,
-		 slow_cap_max, slow_cap_min, slow_cap_range, slow_cap_step,
-		 fast_cap_max, fast_cap_min, fast_cap_range, fast_cap_step,
-		 cap_max, cap_min, cap_range);
-#endif
-}
-
-static inline unsigned int is_efficient_up(unsigned int load_ratio)
-{
-	if (fast.efficiency > slow.efficiency)
-		if (((slow.capacity * (SCHED_LOAD_SCALE + hmp_up_perf_hysteresis)) >> SCHED_LOAD_SHIFT) < fast.capacity)
-			return 1;
-	
-	return 0;
-}
-
-static inline unsigned int is_efficient_down(unsigned int load_ratio)
-{
-	int cap_ratio;
-	
-	cap_ratio = (load_ratio << SCHED_LOAD_SHIFT) / fast_step_ratio;
-	cap_ratio = (cap_ratio * fast_cap_step) >> SCHED_LOAD_SHIFT;
-	cap_ratio = (cap_ratio * fast_cap_max) / fast_cap_range;
-	
-	if (slow.efficiency > fast.efficiency)
-		if (slow.capacity > ((cap_ratio * (SCHED_LOAD_SCALE + hmp_down_perf_hysteresis)) >> SCHED_LOAD_SHIFT))
-			return 1;
-	
-	return 0;
-}
-
 /*
  * Needed to determine heaviest tasks etc.
  */
@@ -1774,7 +1612,7 @@ static inline void __update_task_entity_contrib(struct sched_entity *se)
 	se->avg.load_avg_ratio = scale_load(contrib);
 #ifdef CONFIG_SCHED_HMP
 	if (!hmp_cpu_is_fastest(cpu_of(se->cfs_rq->rq)) &&
-		se->avg.load_avg_ratio > (hmp_power_migration ? hmp_up_power_threshold : hmp_up_threshold))
+		se->avg.load_avg_ratio > hmp_up_threshold)
 		cpu_rq(smp_processor_id())->next_balance = jiffies;
 #endif
 	trace_sched_task_runnable_ratio(task_of(se), se->avg.load_avg_ratio);
@@ -2858,7 +2696,7 @@ static int runtime_refresh_within(struct cfs_bandwidth *cfs_b, u64 min_expire)
 	u64 remaining;
 
 	/* if the call-back is running a quota refresh is already occurring */
-	if (hrtimer_callback_running_relaxed(refresh_timer))
+	if (hrtimer_callback_running(refresh_timer))
 		return 1;
 
 	/* is a quota refresh about to occur? */
@@ -3872,7 +3710,7 @@ static DEFINE_RAW_SPINLOCK(hmp_boost_lock);
 static DEFINE_RAW_SPINLOCK(hmp_semiboost_lock);
 static DEFINE_RAW_SPINLOCK(hmp_sysfs_lock);
 
-#define BOOT_BOOST_DURATION 20000000 /* microseconds */
+#define BOOT_BOOST_DURATION 40000000 /* microseconds */
 #define YIELD_CORRECTION_TIME 10000000 /* nanoseconds */
 
 #ifdef CONFIG_SCHED_HMP_PRIO_FILTER
@@ -3899,7 +3737,9 @@ static inline int hmp_boost(void)
 
 static inline int hmp_semiboost(void)
 {
-	return !!hmp_semiboost_val;
+	if (hmp_semiboost_val)
+		return 1;
+	return 0;
 }
 
 static unsigned int hmp_up_migration(int cpu, int *target_cpu, struct sched_entity *se);
@@ -4111,13 +3951,6 @@ static int hmp_semiboost_period_from_sysfs(int value)
 	return 0;
 }
 
-static int hmp_power_migration_from_sysfs(int value)
-{
-	hmp_power_migration = !!value;
-
-	return 0;
-}
-
 /* max value for threshold is 1024 */
 static int hmp_up_threshold_from_sysfs(int value)
 {
@@ -4125,43 +3958,6 @@ static int hmp_up_threshold_from_sysfs(int value)
 		return -EINVAL;
 
 	hmp_up_threshold = value;
-
-	return 0;
-}
-
-static int hmp_up_perf_threshold_from_sysfs(int value)
-{
-	if ((value > 1024) || (value < 0))
-		return -EINVAL;
-
-	hmp_up_perf_threshold = value;
-
-	return 0;
-}
-
-static int hmp_up_power_threshold_from_sysfs(int value)
-{
-	if ((value > 1024) || (value < 0))
-		return -EINVAL;
-
-	hmp_up_power_threshold = value;
-
-	return 0;
-}
-
-static int hmp_nice_up_threshold_from_sysfs(int value)
-{
-	if ((value < MIN_NICE) || (value > MAX_NICE))
-		return -EINVAL;
-
-	hmp_nice_up_threshold = value;
-
-	return 0;
-}
-
-static int hmp_up_perf_hysteresis_from_sysfs(int value)
-{
-	hmp_up_perf_hysteresis = value;
 
 	return 0;
 }
@@ -4182,13 +3978,6 @@ static int hmp_down_threshold_from_sysfs(int value)
 		return -EINVAL;
 
 	hmp_down_threshold = value;
-
-	return 0;
-}
-
-static int hmp_down_perf_hysteresis_from_sysfs(int value)
-{
-	hmp_down_perf_hysteresis = value;
 
 	return 0;
 }
@@ -4229,56 +4018,101 @@ static int hmp_boostpulse_duration_from_sysfs(int duration)
 static int hmp_boost_from_sysfs(int value)
 {
 	unsigned long flags;
+	int ret = 0;
 
 	raw_spin_lock_irqsave(&hmp_boost_lock, flags);
-	hmp_boost_val = !!value;
+	if (value == 1)
+		hmp_boost_val++;
+	else if (value == 0)
+		if (hmp_boost_val >= 1)
+			hmp_boost_val--;
+		else
+			ret = -EINVAL;
+	else
+		ret = -EINVAL;
 	raw_spin_unlock_irqrestore(&hmp_boost_lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static int hmp_semiboost_from_sysfs(int value)
 {
 	unsigned long flags;
+	int ret = 0;
 
 	raw_spin_lock_irqsave(&hmp_semiboost_lock, flags);
-	hmp_semiboost_val = !!value;
+	if (value == 1)
+		hmp_semiboost_val++;
+	else if (value == 0)
+		if (hmp_semiboost_val >= 1)
+			hmp_semiboost_val--;
+		else
+			ret = -EINVAL;
+	else
+		ret = -EINVAL;
 	raw_spin_unlock_irqrestore(&hmp_semiboost_lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static int hmp_active_dm_from_sysfs(int value)
 {
 	unsigned long flags;
+	int ret = 0;
 
 	raw_spin_lock_irqsave(&hmp_sysfs_lock, flags);
-	hmp_active_down_migration = !!value;
+	if (value == 1)
+		hmp_active_down_migration++;
+	else if (value == 0)
+		if (hmp_active_down_migration >= 1)
+			hmp_active_down_migration--;
+		else
+			ret = -EINVAL;
+	else
+		ret = -EINVAL;
 	raw_spin_unlock_irqrestore(&hmp_sysfs_lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static int hmp_aggressive_up_migration_from_sysfs(int value)
 {
 	unsigned long flags;
+	int ret = 0;
 
 	raw_spin_lock_irqsave(&hmp_sysfs_lock, flags);
-	hmp_aggressive_up_migration = !!value;
+	if (value == 1)
+		hmp_aggressive_up_migration++;
+	else if (value == 0)
+		if (hmp_aggressive_up_migration >= 1)
+			hmp_aggressive_up_migration--;
+		else
+			ret = -EINVAL;
+	else
+		ret = -EINVAL;
 	raw_spin_unlock_irqrestore(&hmp_sysfs_lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static int hmp_aggressive_yield_from_sysfs(int value)
 {
 	unsigned long flags;
+	int ret = 0;
 
 	raw_spin_lock_irqsave(&hmp_sysfs_lock, flags);
-	hmp_aggressive_yield = !!value;
+	if (value == 1)
+		hmp_aggressive_yield++;
+	else if (value == 0)
+		if (hmp_aggressive_yield >= 1)
+			hmp_aggressive_yield--;
+		else
+			ret = -EINVAL;
+	else
+		ret = -EINVAL;
 	raw_spin_unlock_irqrestore(&hmp_sysfs_lock, flags);
 
-	return 0;
+	return ret;
 }
 
 int set_hmp_boost(int enable)
@@ -4334,44 +4168,14 @@ int get_hmp_semiboost(void)
 	return hmp_semiboost();
 }
 
-int set_hmp_power_migration(int value)
-{
-	return hmp_power_migration_from_sysfs(value);
-}
-
 int set_hmp_up_threshold(int value)
 {
 	return hmp_up_threshold_from_sysfs(value);
 }
 
-int set_hmp_up_perf_threshold(int value)
-{
-	return hmp_up_perf_threshold_from_sysfs(value);
-}
-
-int set_hmp_up_power_threshold(int value)
-{
-	return hmp_up_power_threshold_from_sysfs(value);
-}
-
-int set_hmp_nice_up_threshold(int value)
-{
-	return hmp_nice_up_threshold_from_sysfs(value);
-}
-
-int set_hmp_up_perf_hysteresis(int value)
-{
-	return hmp_up_perf_hysteresis_from_sysfs(value);
-}
-
 int set_hmp_down_threshold(int value)
 {
 	return hmp_down_threshold_from_sysfs(value);
-}
-
-int set_hmp_down_perf_hysteresis(int value)
-{
-	return hmp_down_perf_hysteresis_from_sysfs(value);
 }
 
 #ifdef CONFIG_HMP_FREQUENCY_INVARIANT_SCALE
@@ -4414,39 +4218,14 @@ static int hmp_attr_init(void)
 		&hmp_data.multiplier,
 		hmp_period_to_sysfs,
 		hmp_period_from_sysfs);
-	hmp_attr_add("power_migration",
-		&hmp_power_migration,
-		NULL,
-		hmp_power_migration_from_sysfs);
 	hmp_attr_add("up_threshold",
 		&hmp_up_threshold,
 		NULL,
 		hmp_up_threshold_from_sysfs);
-	hmp_attr_add("up_perf_threshold",
-		&hmp_up_perf_threshold,
-		NULL,
-		hmp_up_perf_threshold_from_sysfs);
-	hmp_attr_add("up_power_threshold",
-		&hmp_up_power_threshold,
-		NULL,
-		hmp_up_power_threshold_from_sysfs);
 	hmp_attr_add("down_threshold",
 		&hmp_down_threshold,
 		NULL,
 		hmp_down_threshold_from_sysfs);
-	hmp_attr_add("nice_up_threshold",
-		&hmp_nice_up_threshold,
-		NULL,
-		hmp_nice_up_threshold_from_sysfs);
-	
-	hmp_attr_add("up_perf_hysteresis",
-		&hmp_up_perf_hysteresis,
-		NULL,
-		hmp_up_perf_hysteresis_from_sysfs);
-	hmp_attr_add("down_perf_hysteresis",
-		&hmp_down_perf_hysteresis,
-		NULL,
-		hmp_down_perf_hysteresis_from_sysfs);
 
 	hmp_attr_add("sb_load_avg_period_ms",
 		&hmp_data.semiboost_multiplier,
@@ -4655,19 +4434,6 @@ select_task_rq_fair(struct task_struct *p, int sd_flag, int wake_flags)
 
 	if (p->nr_cpus_allowed == 1)
 		return prev_cpu;
-
-#ifdef CONFIG_SCHED_HMP
-	/* always put non-kernel forking tasks on a big domain */
-	if (unlikely(sd_flag & SD_BALANCE_FORK) && hmp_task_should_forkboost(p)) {
-		new_cpu = hmp_select_faster_cpu(p, prev_cpu);
-		if (new_cpu != NR_CPUS) {
-			hmp_next_up_delay(&p->se, new_cpu);
-			return new_cpu;
- 		}
-		/* failed to perform HMP fork balance, use normal balance */
-		new_cpu = cpu;
-	}
-#endif
 
 	if (sd_flag & SD_BALANCE_WAKE) {
 		if (cpumask_test_cpu(cpu, tsk_cpus_allowed(p)))
@@ -5523,9 +5289,6 @@ static int tg_load_down(struct task_group *tg, void *data)
 	if (!tg->parent) {
 		load = cpu_rq(cpu)->load.weight;
 	} else {
-                unsigned long tmp_rla;
- 		tmp_rla = tg->parent->cfs_rq[cpu]->runnable_load_avg + 1;
-
 		load = tg->parent->cfs_rq[cpu]->h_load;
 		load *= tg->se[cpu]->load.weight;
 		load /= tg->parent->cfs_rq[cpu]->load.weight + 1;
@@ -5814,8 +5577,7 @@ fix_small_capacity(struct sched_domain *sd, struct sched_group *group)
  */
 static inline void update_sg_lb_stats(struct lb_env *env,
 			struct sched_group *group, int load_idx,
-			int local_group, int *balance, struct sg_lb_stats *sgs,
-			bool *overload)
+			int local_group, int *balance, struct sg_lb_stats *sgs)
 {
 	unsigned long nr_running, max_nr_running, min_nr_running;
 	unsigned long load, max_cpu_load, min_cpu_load;
@@ -5862,10 +5624,6 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 		sgs->group_load += load;
 		sgs->sum_nr_running += nr_running;
 		sgs->sum_weighted_load += weighted_cpuload(i);
-
-		if (rq->nr_running > 1)
-			*overload = true;
-
 		if (idle_cpu(i))
 			sgs->idle_cpus++;
 	}
@@ -5970,7 +5728,6 @@ static inline void update_sd_lb_stats(struct lb_env *env,
 	struct sched_group *sg = env->sd->groups;
 	struct sg_lb_stats sgs;
 	int load_idx, prefer_sibling = 0;
-	bool overload = false;
 
 	if (child && child->flags & SD_PREFER_SIBLING)
 		prefer_sibling = 1;
@@ -5982,8 +5739,7 @@ static inline void update_sd_lb_stats(struct lb_env *env,
 
 		local_group = cpumask_test_cpu(env->dst_cpu, sched_group_cpus(sg));
 		memset(&sgs, 0, sizeof(sgs));
-		update_sg_lb_stats(env, sg, load_idx, local_group, balance, &sgs,
-						&overload);
+		update_sg_lb_stats(env, sg, load_idx, local_group, balance, &sgs);
 
 		if (local_group && !(*balance))
 			return;
@@ -6025,12 +5781,6 @@ static inline void update_sd_lb_stats(struct lb_env *env,
 
 		sg = sg->next;
 	} while (sg != env->sd->groups);
-
-	if (!env->sd->parent) {
-		/* update overload indicator if we are at root domain */
-		if (env->dst_rq->rd->overload != overload)
-			env->dst_rq->rd->overload = overload;
-	}
 }
 
 /**
@@ -6330,7 +6080,7 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 	unsigned long max_load = 0;
 	int i;
 
-	for_each_cpu_and(i, sched_group_cpus(group), env->cpus) {
+	for_each_cpu(i, sched_group_cpus(group)) {
 		unsigned long power = power_of(i);
 		unsigned long capacity = DIV_ROUND_CLOSEST(power,
 							   SCHED_POWER_SCALE);
@@ -6338,6 +6088,9 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 
 		if (!capacity)
 			capacity = fix_small_capacity(env->sd, group);
+
+		if (!cpumask_test_cpu(i, env->cpus))
+			continue;
 
 		rq = cpu_rq(i);
 		wl = weighted_cpuload(i);
@@ -6638,8 +6391,7 @@ void idle_balance(int this_cpu, struct rq *this_rq)
 
 	this_rq->idle_stamp = this_rq->clock;
 
-	if (this_rq->avg_idle < sysctl_sched_migration_cost ||
-	    !this_rq->rd->overload)
+	if (this_rq->avg_idle < sysctl_sched_migration_cost)
 		return;
 
 	/*
@@ -6657,6 +6409,7 @@ void idle_balance(int this_cpu, struct rq *this_rq)
 			continue;
 
 		if (sd->flags & SD_BALANCE_NEWIDLE) {
+			/* If we've pulled tasks over stop searching: */
 			pulled_task = load_balance(this_cpu, this_rq,
 						   sd, CPU_NEWLY_IDLE, &balance);
 		}
@@ -6664,11 +6417,7 @@ void idle_balance(int this_cpu, struct rq *this_rq)
 		interval = msecs_to_jiffies(sd->balance_interval);
 		if (time_after(next_balance, sd->last_balance + interval))
 			next_balance = sd->last_balance + interval;
-			/*
-			* Stop searching for tasks to pull if there are
-			* now runnable tasks on this rq.
-			*/
- 			if (pulled_task || this_rq->nr_running > 0) {
+		if (pulled_task) {
 			this_rq->idle_stamp = 0;
 			break;
 		}
@@ -7138,30 +6887,19 @@ static unsigned int hmp_up_migration(int cpu, int *target_cpu, struct sched_enti
 	if (hmp_cpu_is_fastest(cpu))
 		return 0;
 
-	if (hmp_task_below_nice_threshold(p))
-		goto migrate_up;
-
 #ifdef CONFIG_SCHED_HMP_PRIO_FILTER
 	/* Filter by task priority */
 	if (p->prio >= hmp_up_prio)
 		return 0;
 #endif
-
 	if (!hmp_boost()) {
 		if (hmp_semiboost())
 			up_threshold = hmp_semiboost_up_threshold;
 		else
-			up_threshold = hmp_power_migration ? hmp_up_perf_threshold : hmp_up_threshold;
+			up_threshold = hmp_up_threshold;
 
-		if (se->avg.load_avg_ratio < up_threshold) {
-			if (hmp_power_migration) {
-				if (!((se->avg.load_avg_ratio > hmp_up_power_threshold) 
-				    && is_efficient_up(se->avg.load_avg_ratio)))
-					return 0;
-			} else {
-				return 0;
-			}
-		}
+		if (se->avg.load_avg_ratio < up_threshold)
+			return 0;
 	}
 
 	/* Let the task load settle before doing another up migration */
@@ -7171,7 +6909,6 @@ static unsigned int hmp_up_migration(int cpu, int *target_cpu, struct sched_enti
 					< hmp_next_up_threshold)
 		return 0;
 
-migrate_up:
 	/* hmp_domain_min_load only returns 0 for an
 	 * idle CPU.
 	 * Be explicit about requirement for an idle CPU.
@@ -7203,9 +6940,6 @@ static unsigned int hmp_down_migration(int cpu, struct sched_entity *se)
 	u64 now;
 
 	if (hmp_cpu_is_slowest(cpu))
-		return 0;
-
-	if (hmp_task_below_nice_threshold(p))
 		return 0;
 
 #ifdef CONFIG_SCHED_HMP_PRIO_FILTER
@@ -7243,11 +6977,8 @@ static unsigned int hmp_down_migration(int cpu, struct sched_entity *se)
 			down_threshold = hmp_semiboost_down_threshold;
 		else
 			down_threshold = hmp_down_threshold;
-		
-		if (hmp_power_migration && is_efficient_down(se->avg.load_avg_ratio))
-			return 1;
 
-		if (!hmp_power_migration && se->avg.load_avg_ratio < down_threshold)
+		if (se->avg.load_avg_ratio < down_threshold)
 			return 1;
 	}
 	return 0;
@@ -7650,7 +7381,7 @@ static unsigned int hmp_idle_pull(int this_cpu)
 		if (hmp_semiboost())
 			up_threshold = hmp_semiboost_up_threshold;
 		else
-			up_threshold = hmp_power_migration ? hmp_up_perf_threshold : hmp_up_threshold;
+			up_threshold = hmp_up_threshold;
 
 		if (hmp_boost() || curr->avg.load_avg_ratio > up_threshold)
 			if (curr->avg.load_avg_ratio > ratio) {
@@ -8246,7 +7977,7 @@ static int cpufreq_callback(struct notifier_block *nb,
 					unsigned long val, void *data)
 {
 	struct cpufreq_freqs *freq = data;
-	int p_idx, p_idx_found = 0, cluster, cpu = freq->cpu;
+	int cpu = freq->cpu;
 	struct cpufreq_extents *extents;
 
 	if (freq->flags & CPUFREQ_CONST_LOOPS)
@@ -8270,24 +8001,6 @@ static int cpufreq_callback(struct notifier_block *nb,
 	} else {
 		extents->curr_scale = cpufreq_calc_scale(extents->min,
 				extents->max, freq->new);
-	}
-	
-	cluster = (cpu > 3);
-	if (((struct cpu_p_state)(cluster ? fast : slow)).freq == freq->new)
-		return NOTIFY_OK;
-
-	for (p_idx = 0; p_idx < cpu_efficiency_table[cluster].n_p_states; p_idx++) {
-		if (cpu_efficiency_table[cluster].p_states[p_idx].freq == freq->new) {
-			p_idx_found = 1;
-			break;
-		}
-	}
-
-	if (p_idx_found) {
-		if (cluster)
-			fast = cpu_efficiency_table[cluster].p_states[p_idx];
-		else
-			slow = cpu_efficiency_table[cluster].p_states[p_idx];
 	}
 
 	return NOTIFY_OK;

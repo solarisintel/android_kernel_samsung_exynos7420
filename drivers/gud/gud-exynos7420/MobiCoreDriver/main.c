@@ -1338,6 +1338,7 @@ static int mc_fd_admin_open(struct inode *inode, struct file *file)
 {
 	struct mc_instance *instance;
 
+	/* ExySp */
 	dev_err(mcd, "opened by PID(%d), name(%s)\n", current->pid, current->comm);
 
 	/*
@@ -1380,6 +1381,7 @@ static int mc_fd_release(struct inode *inode, struct file *file)
 	struct mc_instance *instance = get_instance(file);
 
 	MCDRV_DBG_VERBOSE(mcd, "enter");
+	/* ExySp */
 	dev_err(mcd, "closed by PID(%d), name(%s)\n", current->pid, current->comm);
 
 	if (WARN(!instance, "No instance data available"))

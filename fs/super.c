@@ -680,11 +680,12 @@ rescan:
  *	@sb:	superblock in question
  *	@flags:	numeric part of options
  *	@data:	the rest of options
- *      @force: whether or not to force the change
+ *  @force: whether or not to force the change
  *
  *	Alters the mount options of a mounted file system.
  */
-int do_remount_sb2(struct vfsmount *mnt, struct super_block *sb, int flags, void *data, int force)
+int do_remount_sb2(struct vfsmount *mnt, struct super_block *sb, int flags, 
+		void *data, int force)
 {
 	int retval;
 	int remount_ro;
@@ -768,7 +769,7 @@ static void do_emergency_remount(struct work_struct *work)
 	struct super_block *sb, *p = NULL;
 
 	spin_lock(&sb_lock);
-	list_for_each_entry(sb, &super_blocks, s_list) {
+	list_for_each_entry_reverse(sb, &super_blocks, s_list) {
 		if (hlist_unhashed(&sb->s_instances))
 			continue;
 		sb->s_count++;
@@ -1082,7 +1083,8 @@ struct dentry *mount_single(struct file_system_type *fs_type,
 EXPORT_SYMBOL(mount_single);
 
 struct dentry *
-mount_fs(struct file_system_type *type, int flags, const char *name, struct vfsmount *mnt, void *data)
+mount_fs(struct file_system_type *type, int flags, const char *name, 
+		struct vfsmount *mnt, void *data)
 {
 	struct dentry *root;
 	struct super_block *sb;

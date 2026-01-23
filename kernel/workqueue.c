@@ -100,10 +100,10 @@ enum {
 
 	/*
 	 * Rescue workers are used only on emergencies and shared by
-	 * all cpus.  Give MIN_NICE.
+	 * all cpus.  Give -20.
 	 */
-	RESCUER_NICE_LEVEL	= MIN_NICE,
-	HIGHPRI_NICE_LEVEL	= MIN_NICE,
+	RESCUER_NICE_LEVEL	= -20,
+	HIGHPRI_NICE_LEVEL	= -20,
 
 	WQ_NAME_LEN		= 24,
 };
@@ -280,7 +280,7 @@ static bool wq_power_efficient = true;
 static bool wq_power_efficient;
 #endif
 
-module_param_named(power_efficient, wq_power_efficient, bool, 0644);
+module_param_named(power_efficient, wq_power_efficient, bool, 0444);
 
 static bool wq_numa_enabled;		/* unbound NUMA affinity enabled */
 
@@ -1352,10 +1352,10 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(wq->flags & __WQ_DRAINING) &&
 	    WARN_ON_ONCE(!is_chained_work(wq)))
 		return;
-
-	if (req_cpu == WORK_CPU_UNBOUND)
-		cpu = 0;
 retry:
+	if (req_cpu == WORK_CPU_UNBOUND)
+		cpu = raw_smp_processor_id();
+
 	/* pwq which will be used unless @work is executing elsewhere */
 	if (!(wq->flags & WQ_UNBOUND))
 		pwq = per_cpu_ptr(wq->cpu_pwqs, cpu);
@@ -1499,7 +1499,7 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(cpu != WORK_CPU_UNBOUND))
 		add_timer_on(timer, cpu);
 	else
-		add_timer_on(timer, 0);
+		add_timer(timer);
 }
 
 /**
@@ -3263,6 +3263,7 @@ static ssize_t wq_nice_show(struct device *dev, struct device_attribute *attr,
 static struct workqueue_attrs *wq_sysfs_prep_attrs(struct workqueue_struct *wq)
 {
 	struct workqueue_attrs *attrs;
+
 	attrs = alloc_workqueue_attrs(GFP_KERNEL);
 	if (!attrs)
 		return NULL;
@@ -3501,14 +3502,14 @@ void free_workqueue_attrs(struct workqueue_attrs *attrs)
 struct workqueue_attrs *alloc_workqueue_attrs(gfp_t gfp_mask)
 {
 	struct workqueue_attrs *attrs;
-    const unsigned long allowed_cpus = 0x3;
+
 	attrs = kzalloc(sizeof(*attrs), gfp_mask);
 	if (!attrs)
 		goto fail;
 	if (!alloc_cpumask_var(&attrs->cpumask, gfp_mask))
 		goto fail;
 
-	cpumask_copy(attrs->cpumask, to_cpumask(&allowed_cpus));
+	cpumask_copy(attrs->cpumask, cpu_possible_mask);
 	return attrs;
 fail:
 	free_workqueue_attrs(attrs);
@@ -4490,7 +4491,7 @@ bool workqueue_congested(int cpu, struct workqueue_struct *wq)
 	rcu_read_lock_sched();
 
 	if (cpu == WORK_CPU_UNBOUND)
-		cpu = 0;
+		cpu = smp_processor_id();
 
 	if (!(wq->flags & WQ_UNBOUND))
 		pwq = per_cpu_ptr(wq->cpu_pwqs, cpu);

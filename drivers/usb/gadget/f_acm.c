@@ -540,8 +540,8 @@ static int acm_notify_serial_state(struct f_acm *acm)
 {
 	struct usb_composite_dev *cdev = acm->port.func.config->cdev;
 	int			status;
+	__le16			serial_state;
 	unsigned long	flags;
-        __le16 serial_state;
 
 	spin_lock_irqsave(&acm->lock, flags);
 
@@ -551,7 +551,7 @@ static int acm_notify_serial_state(struct f_acm *acm)
 		serial_state = cpu_to_le16(acm->serial_state);
 		status = acm_cdc_notify(acm, USB_CDC_NOTIFY_SERIAL_STATE,
 				0, &serial_state, sizeof(acm->serial_state));
-        } else {
+	} else {
 		acm->pending = true;
 		status = 0;
 	}

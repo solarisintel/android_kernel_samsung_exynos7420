@@ -249,7 +249,7 @@ static int
 nfsd4_build_namelist(void *arg, const char *name, int namlen,
 		loff_t offset, u64 ino, unsigned int d_type)
 {
-	struct nfs4_dir_ctx *ctx = arg;
+	struct list_head *names = arg;
 	struct name_list *entry;
 
 	if (namlen != HEXDIR_LEN - 1)

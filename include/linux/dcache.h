@@ -120,15 +120,15 @@ struct dentry {
 	void *d_fsdata;			/* fs-specific data */
 
 	struct list_head d_lru;		/* LRU list */
+	struct list_head d_child;	/* child of parent list */
+	struct list_head d_subdirs;	/* our children */
 	/*
-	 * d_child and d_rcu can share memory
+	 * d_alias and d_rcu can share memory
 	 */
 	union {
-		struct list_head d_child;	/* child of parent list */
+		struct hlist_node d_alias;	/* inode alias list */
 	 	struct rcu_head d_rcu;
 	} d_u;
-	struct list_head d_subdirs;	/* our children */
-	struct hlist_node d_alias;	/* inode alias list */
 };
 
 /*
@@ -211,6 +211,8 @@ struct dentry_operations {
 
 #define DCACHE_DENTRY_KILLED	0x100000
 #define DCACHE_WILL_INVALIDATE		0x80000000 /* will be invalidated */
+
+#define DCACHE_ENCRYPTED_WITH_KEY	0x04000000 /* dir is encrypted with a valid key */
 
 extern seqlock_t rename_lock;
 
@@ -412,13 +414,13 @@ static inline bool d_mountpoint(struct dentry *dentry)
 	return dentry->d_flags & DCACHE_MOUNTED;
 }
 
-static inline bool d_is_su(const struct dentry *dentry)
-{
-	return dentry &&
-	       dentry->d_name.len == 2 &&
-	       !memcmp(dentry->d_name.name, "su", 2);
-}
-
 extern int sysctl_vfs_cache_pressure;
+
+struct name_snapshot {
+	const char *name;
+	char inline_name[DNAME_INLINE_LEN];
+};
+void take_dentry_name_snapshot(struct name_snapshot *, struct dentry *);
+void release_dentry_name_snapshot(struct name_snapshot *);
 
 #endif	/* __LINUX_DCACHE_H */

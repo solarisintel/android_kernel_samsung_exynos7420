@@ -85,7 +85,6 @@
 #include <linux/stddef.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-#include <linux/inetdevice.h>
 
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
@@ -794,6 +793,7 @@ void tcp_v4_send_reset(struct sock *sk, struct sk_buff *skb)
 
 	net = dev_net(skb_dst(skb)->dev);
 	arg.tos = ip_hdr(skb)->tos;
+	arg.uid = sock_net_uid(net, sk && sk_fullsock(sk) ? sk : NULL);
 	ip_send_unicast_reply(*this_cpu_ptr(net->ipv4.tcp_sk),
 			      skb, ip_hdr(skb)->saddr,
 			      ip_hdr(skb)->daddr, &arg, arg.iov[0].iov_len);
@@ -814,7 +814,7 @@ release_sk1:
    outside socket context is ugly, certainly. What can I do?
  */
 
-static void tcp_v4_send_ack(struct sk_buff *skb, u32 seq, u32 ack,
+static void tcp_v4_send_ack(const struct sock *sk, struct sk_buff *skb, u32 seq, u32 ack,
 #ifdef CONFIG_MPTCP
 				u32 data_ack,
 #endif
@@ -840,7 +840,7 @@ static void tcp_v4_send_ack(struct sk_buff *skb, u32 seq, u32 ack,
 			];
 	} rep;
 	struct ip_reply_arg arg;
-	struct net *net = dev_net(skb_dst(skb)->dev);
+	struct net *net = sock_net(sk);
 
 	memset(&rep.th, 0, sizeof(struct tcphdr));
 	memset(&arg, 0, sizeof(arg));
@@ -904,6 +904,7 @@ static void tcp_v4_send_ack(struct sk_buff *skb, u32 seq, u32 ack,
 	if (oif)
 		arg.bound_dev_if = oif;
 	arg.tos = tos;
+	arg.uid = sock_net_uid(net, sk_fullsock(sk) ? sk : NULL);
 	ip_send_unicast_reply(*this_cpu_ptr(net->ipv4.tcp_sk),
 			      skb, ip_hdr(skb)->saddr,
 			      ip_hdr(skb)->daddr, &arg, arg.iov[0].iov_len);
@@ -925,7 +926,7 @@ static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)
 	}
 #endif
 
-	tcp_v4_send_ack(skb, tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
+	tcp_v4_send_ack(sk, skb, tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
 #ifdef CONFIG_MPTCP
 			data_ack,
 #endif
@@ -953,7 +954,7 @@ void tcp_v4_reqsk_send_ack(struct sock *sk, struct sk_buff *skb,
 	/* sk->sk_state == TCP_LISTEN -> for regular TCP_SYN_RECV
 	 * sk->sk_state == TCP_SYN_RECV -> for Fast Open.
 	 */
-	tcp_v4_send_ack(skb, (sk->sk_state == TCP_LISTEN) ?
+	tcp_v4_send_ack(sk, skb, (sk->sk_state == TCP_LISTEN) ?
 			tcp_rsk(req)->snt_isn + 1 : tcp_sk(sk)->snd_nxt,
 			tcp_rsk(req)->rcv_nxt,
 			req->rcv_wnd >> inet_rsk(req)->rcv_wscale,
@@ -2237,9 +2238,6 @@ int tcp_v4_rcv(struct sk_buff *skb)
 #endif
 	int ret;
 	struct net *net = dev_net(skb->dev);
-#if !defined(CONFIG_SEC_LOCALE_CHN)
-	struct in_device *in_dev;
-#endif
 
 	if (skb->pkt_type != PACKET_HOST)
 		goto discard_it;
@@ -2403,17 +2401,7 @@ csum_error:
 bad_packet:
 		TCP_INC_STATS_BH(net, TCP_MIB_INERRS);
 	} else {
-#if defined(CONFIG_SEC_LOCALE_CHN)
 		tcp_v4_send_reset(NULL, skb);
-#else
-		in_dev = in_dev_get(skb->dev);
-		if (in_dev) {
-			if (!IN_DEV_FORWARD(in_dev))
-				tcp_v4_send_reset(NULL, skb);
-			in_dev_put(in_dev);
-		} else
-			tcp_v4_send_reset(NULL, skb);
-#endif
 	}
 
 discard_it:
@@ -2531,7 +2519,7 @@ static int tcp_v4_init_sock(struct sock *sk)
 	tcp_init_sock(sk);
 
 #ifdef CONFIG_MPTCP
-	if (is_mptcp_enabled(sk))
+	if (sock_flag(sk, SOCK_MPTCP))
 		icsk->icsk_af_ops = &mptcp_v4_specific;
 	else
 #endif

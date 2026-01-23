@@ -516,7 +516,10 @@ static void rkp_init(void)
 		return;
 	}
 	init.extra_memory_addr = __pa(vmm_extra_mem);
-	init.extra_memory_size = 0x600000;
+	/* extra_memory_size is changed for rkp_alloc fail on zero/noble.
+	   Watch out, this region is allocated in arch/arm64/mm/mmu.c.
+	   So wanted to change, two files should be modified. */
+	init.extra_memory_size = 0x800000;
 	init._srodata = (u64) __start_rodata;
 	init._erodata =(u64) __end_rodata;
 	init.large_memory = rkp_support_large_memory;
