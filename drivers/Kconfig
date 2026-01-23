@@ -187,7 +187,7 @@ source "drivers/sensorhub/atmel/Kconfig"
 
 source "drivers/sensorhub/brcm/Kconfig"
 
-#source "drivers/sensorhub/stm32/Kconfig"
+source "drivers/sensorhub/stm32/Kconfig"
 
 source "drivers/sensors/Kconfig"
 
@@ -206,4 +206,6 @@ source "drivers/bts/Kconfig"
 source "drivers/ledmatrix/Kconfig"
 
 source "drivers/soc/Kconfig"
+
+source "drivers/android/Kconfig"
 endmenu

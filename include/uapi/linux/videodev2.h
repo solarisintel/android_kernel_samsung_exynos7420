@@ -963,7 +963,27 @@ struct v4l2_standard {
 };
 
 /*
- *	D V		P R E S E T		V A L U E S
+ *	V I D E O	T I M I N G S	D V	P R E S E T
+ */
+struct v4l2_dv_preset {
+    __u32	preset;
+    __u32	reserved[4];
+};
+
+/*
+ *	D V	P R E S E T S	E N U M E R A T I O N
+ */
+struct v4l2_dv_enum_preset {
+    __u32	index;
+    __u32	preset;
+    __u8	name[32]; /* Name of the preset timing */
+    __u32	width;
+    __u32	height;
+    __u32	reserved[4];
+};
+
+/*
+ * 	D V	P R E S E T	V A L U E S
  */
 #define		V4L2_DV_INVALID		0
 #define		V4L2_DV_480P59_94	1 /* BT.1362 */
@@ -1012,7 +1032,7 @@ struct v4l2_standard {
 #define		V4L2_DV_1080P60_TB		41
 #define		V4L2_DV_1080P30_FP		42
 #define		V4L2_DV_1080P30_SB_HALF		43
-#define	V4L2_DV_1080P30_TB	44
+#define		V4L2_DV_1080P30_TB		44
 
 /*
  *	D V 	B T	T I M I N G S

@@ -1,8 +1,8 @@
 VERSION = 3
 PATCHLEVEL = 10
-SUBLEVEL = 107
-EXTRAVERSION = -XXS5EQG2
-NAME = TOSSUG Baby Fish
+SUBLEVEL = 108
+EXTRAVERSION =-Hyper
+NAME = END-OF-LIFE
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -192,9 +192,9 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/x86/ -e s/x86_64/x86/ \
 # "make" in the configured kernel build directory always uses that.
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
-export KBUILD_BUILDHOST := $(SUBARCH)
+
 ARCH		?=arm64
-CROSS_COMPILE	?=../../../prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+CROSS_COMPILE	?=../PLATFORM/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
@@ -240,11 +240,9 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
 	  else echo sh; fi ; fi)
 
-CCACHE  = $(srctree)/../../../prebuilts/misc/linux-x86/ccache/ccache
-
-HOSTCC       = $(CCACHE) gcc
-HOSTCXX      = $(CCACHE) g++
-HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89
+HOSTCC       = gcc
+HOSTCXX      = g++
+HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer
 HOSTCXXFLAGS = -O2
 
 # Decide whether to build built-in, modular, or both.
@@ -327,15 +325,15 @@ include $(srctree)/scripts/Kbuild.include
 
 # Make variables (CC, etc...)
 
-AS		= $(CROSS_COMPILE)as
-LD		= $(CROSS_COMPILE)ld
+AS		= $(CCACHE) $(CROSS_COMPILE)as
+LD		= $(CCACHE) $(CROSS_COMPILE)ld
 CC		= $(CCACHE) $(CROSS_COMPILE)gcc
-CPP		= $(CC) -E
-AR		= $(CROSS_COMPILE)ar
-NM		= $(CROSS_COMPILE)nm
-STRIP		= $(CROSS_COMPILE)strip
-OBJCOPY		= $(CROSS_COMPILE)objcopy
-OBJDUMP		= $(CROSS_COMPILE)objdump
+CPP		= $(CCACHE) $(CC) -E
+AR		= $(CCACHE) $(CROSS_COMPILE)ar
+NM		= $(CCACHE) $(CROSS_COMPILE)nm
+STRIP		= $(CCACHE) $(CROSS_COMPILE)strip
+OBJCOPY		= $(CCACHE) $(CROSS_COMPILE)objcopy
+OBJDUMP		= $(CCACHE) $(CROSS_COMPILE)objdump
 AWK		= awk
 GENKSYMS	= scripts/genksyms/genksyms
 INSTALLKERNEL  := installkernel
@@ -383,15 +381,16 @@ LINUXINCLUDE    := \
 KBUILD_CPPFLAGS := -D__KERNEL__
 
 KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
+                   -w \
 		   -fno-strict-aliasing -fno-common \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
+            -Werror \
 		   -fno-delete-null-pointer-checks \
-		   -fdiagnostics-show-option \
-		   -march=armv8-a+crc \
-		   -mtune=cortex-a57.cortex-a53 \
-		   -std=gnu89 \
-		   -Werror
+		   -fdiagnostics-show-option -Werror \
+           -Ofast -Wno-maybe-uninitialized \
+            -std=gnu89
+
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__
@@ -466,22 +465,12 @@ export ANDROID_VERSION=$(PLATFORM_VERSION_NUMBER)
 export ANDROID_MAJOR_VERSION=$(MAJOR_VERSION)
 KBUILD_CFLAGS += -DANDROID_VERSION=$(PLATFORM_VERSION_NUMBER)
 KBUILD_CFLAGS += -DANDROID_MAJOR_VERSION=$(MAJOR_VERSION)
-# Example
-SELINUX_DIR=$(shell $(CONFIG_SHELL) $(srctree)/scripts/find_matching_major.sh "$(srctree)" "security/selinux" "$(ANDROID_MAJOR_VERSION)")
-SDCARDFS_DIR=$(shell $(CONFIG_SHELL) $(srctree)/scripts/find_matching_version.sh "$(srctree)" "fs/sdcardfs" "$(ANDROID_VERSION)")
 else
 export ANDROID_VERSION=990000
 KBUILD_CFLAGS += -DANDROID_VERSION=990000
 endif
 PHONY += replace_dirs
 replace_dirs:
-ifneq ($(PLATFORM_VERSION), )
-# Example
-	@echo "replace selinux from $(SELINUX_DIR)"
-	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/replace_dir.sh "$(srctree)" "security/selinux" "$(SELINUX_DIR)"
-	@echo "replace sdcardfs from $(SDCARDFS_DIR)"
-	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/replace_dir.sh "$(srctree)" "fs/sdcardfs" "$(SDCARDFS_DIR)"
-endif
 # To make sure we do not include .config for any of the *config targets
 # catch them early, and hand them over to scripts/kconfig/Makefile
 # It is allowed to specify more targets when calling make, including
@@ -610,12 +599,6 @@ endif # $(dot-config)
 # This allow a user to issue only 'make' to build a kernel including modules
 # Defaults to vmlinux, but the arch makefile usually adds further targets
 all: vmlinux
-
-ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
-KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
-else
-KBUILD_CFLAGS	+= -O2
-endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile
 

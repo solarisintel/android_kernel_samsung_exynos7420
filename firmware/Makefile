@@ -142,19 +142,39 @@ fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 fw-shipped-$(CONFIG_EPEN_WACOM_W9012) += epen/W9012_T.bin epen/W9012_TB.bin
 fw-shipped-$(CONFIG_EPEN_WACOM_W9014) += epen/W9014_NOBLE.bin
 
+TSPFIRMWARE_DIRECTORY = $(srctree)/firmware/tsp_melfas
+ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_MELFAS_MMS449) += tsp_melfas/mms449_a8x.fw 
+else
+$(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
+endif
 
+TSPFIRMWARE_DIRECTORY = $(srctree)/firmware/tsp_synaptics
+ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI) += tsp_synaptics/synaptics_b0_h.fw \
 	tsp_synaptics/synaptics_b0_fac.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_DSX2) += tsp_synaptics/synaptics_s5300_v.fw \
 					tsp_synaptics/synaptics_s5300_v_ab.fw tsp_synaptics/synaptics_s5300_v_ac.fw
+else
+$(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
+endif
 
+TSPFIRMWARE_DIRECTORY = $(srctree)/firmware/tsp_stm
+ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_FTS) += tsp_stm/stm_tb_integ.fw tsp_stm/stm_z2a.fw \
 	tsp_stm/stm_z2i.fw tsp_stm/stm_z1.fw tsp_stm/stm_za.fw
 fw-shipped-$(CONFIG_TOUCHSCREEN_FTS5AD56) += tsp_stm/stm_z1.fw tsp_stm/noble.fw \
 	tsp_stm/zen.fw
+else
+$(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
+endif
 
+TSPFIRMWARE_DIRECTORY = $(srctree)/firmware/tsp_sec
+ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS) += tsp_sec/s6smc43_s6_img_REL.bin
+else
+$(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
+endif
 
 fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH) += abov/abov_noble.fw abov/abov_zen.fw \
 							abov/abov_valley.fw abov/abov_a8x.fw
@@ -189,9 +209,6 @@ endif
 
 fw-shipped-$(CONFIG_SENSORS_SSP_STM32) += ssp_stmf410_a8xe.fw
 
-# Wireless charger
-fw-shipped-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += idt/p9220_otp.bin idt/p9220_sram.bin
-
 # IrDA FPGA
 fw-shipped-$(CONFIG_SEC_FPGA_ICE40XX) += ice40xx/i2c_top_bitmap_1.fw
 
@@ -224,7 +241,7 @@ quiet_cmd_fwbin = MK_FW   $@
 		  echo "    .section .rodata"				>>$@;\
 		  echo "    .p2align $${ASM_ALIGN}"			>>$@;\
 		  echo "_fw_$${FWSTR}_bin:"				>>$@;\
-		  echo "    .incbin \"$(2)\""				>>$@;\
+		  echo "    .incbin \"$(srctree)/$(2)\""		>>$@;\
 		  echo "_fw_end:"					>>$@;\
 		  echo "   .section .rodata.str,\"aMS\",$${PROGBITS},1"	>>$@;\
 		  echo "    .p2align $${ASM_ALIGN}"			>>$@;\

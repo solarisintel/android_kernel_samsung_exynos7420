@@ -95,6 +95,9 @@
 #if defined(CONFIG_SYSCTL)
 
 /* External variables not in a header file. */
+#ifdef CONFIG_USB
+extern int deny_new_usb;
+#endif
 extern int sysctl_overcommit_memory;
 extern int sysctl_overcommit_ratio;
 extern int max_threads;
@@ -290,13 +293,6 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
-	{
-		.procname	= "sched_capacity_margin",
-		.data		= &sysctl_sched_capacity_margin,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
-	},
 #ifdef CONFIG_SCHED_DEBUG
 	{
 		.procname	= "sched_min_granularity_ns",
@@ -315,20 +311,6 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= sched_proc_update_handler,
 		.extra1		= &min_sched_granularity_ns,
 		.extra2		= &max_sched_granularity_ns,
-	},
-	{
-		.procname	= "sched_is_big_little",
-		.data		= &sysctl_sched_is_big_little,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
-	},
-	{
-		.procname	= "sched_sync_hint_enable",
-		.data		= &sysctl_sched_sync_hint_enable,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
 	},
 	{
 		.procname	= "sched_wakeup_granularity_ns",
@@ -813,6 +795,17 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= proc_dointvec_minmax_sysadmin,
 		.extra1		= &zero,
 		.extra2		= &two,
+	},
+#endif
+#ifdef CONFIG_USB
+	{
+		.procname	= "deny_new_usb",
+		.data		= &deny_new_usb,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec_minmax_sysadmin,
+		.extra1		= &zero,
+		.extra2		= &one,
 	},
 #endif
 	{

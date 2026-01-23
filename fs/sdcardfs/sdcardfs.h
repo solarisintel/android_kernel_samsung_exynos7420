@@ -82,8 +82,9 @@
  */
 #define fixup_tmp_permissions(x)	\
 	do {						\
-		(x)->i_uid = SDCARDFS_I(x)->data->d_uid;	\
-		(x)->i_gid = AID_SDCARD_RW;	\
+		(x)->i_uid = make_kuid(&init_user_ns,   \
+                        SDCARDFS_I(x)->data->d_uid);    \
+		(x)->i_gid = make_kgid(&init_user_ns, AID_SDCARD_RW);   \
 		(x)->i_mode = ((x)->i_mode & S_IFMT) | 0775;\
 	} while (0)
 
@@ -200,6 +201,7 @@ struct sdcardfs_inode_info {
 	struct sdcardfs_inode_data *data;
 
 	/* top folder for ownership */
+	spinlock_t top_lock;
 	struct sdcardfs_inode_data *top_data;
 
 	struct inode vfs_inode;
@@ -218,6 +220,8 @@ struct sdcardfs_mount_options {
 	gid_t fs_low_gid;
 	userid_t fs_user_id;
 	bool multiuser;
+	bool gid_derivation;
+	bool default_normal;
 	unsigned int reserved_mb;
 };
 
@@ -377,7 +381,12 @@ static inline struct sdcardfs_inode_data *data_get(
 static inline struct sdcardfs_inode_data *top_data_get(
 		struct sdcardfs_inode_info *info)
 {
-	return data_get(info->top_data);
+	struct sdcardfs_inode_data *top_data;
+
+	spin_lock(&info->top_lock);
+	top_data = data_get(info->top_data);
+	spin_unlock(&info->top_lock);
+	return top_data;
 }
 
 extern void data_release(struct kref *ref);
@@ -399,23 +408,30 @@ static inline void release_own_data(struct sdcardfs_inode_info *info)
 }
 
 static inline void set_top(struct sdcardfs_inode_info *info,
-			struct sdcardfs_inode_data *top)
+			struct sdcardfs_inode_info *top_owner)
 {
-	struct sdcardfs_inode_data *old_top = info->top_data;
+	struct sdcardfs_inode_data *old_top;
+	struct sdcardfs_inode_data *new_top = NULL;
 
-	if (top)
-		data_get(top);
-	info->top_data = top;
+	if (top_owner)
+		new_top = top_data_get(top_owner);
+
+	spin_lock(&info->top_lock);
+	old_top = info->top_data;
+	info->top_data = new_top;
 	if (old_top)
 		data_put(old_top);
+	spin_unlock(&info->top_lock);
 }
 
 static inline int get_gid(struct vfsmount *mnt,
+		struct super_block *sb,
 		struct sdcardfs_inode_data *data)
 {
-	struct sdcardfs_vfsmount_options *opts = mnt->data;
+	struct sdcardfs_vfsmount_options *vfsopts = mnt->data;
+	struct sdcardfs_sb_info *sbi = SDCARDFS_SB(sb);
 
-	if (opts->gid == AID_SDCARD_RW)
+	if (vfsopts->gid == AID_SDCARD_RW && !sbi->options.default_normal)
 		/* As an optimization, certain trusted system components only run
 		 * as owner but operate across all users. Since we're now handing
 		 * out the sdcard_rw GID only to trusted apps, we're okay relaxing
@@ -424,7 +440,7 @@ static inline int get_gid(struct vfsmount *mnt,
 		 */
 		return AID_SDCARD_RW;
 	else
-		return multiuser_get_uid(data->userid, opts->gid);
+		return multiuser_get_uid(data->userid, vfsopts->gid);
 }
 
 static inline int get_mode(struct vfsmount *mnt,
@@ -511,8 +527,7 @@ struct limit_search {
 };
 
 extern void setup_derived_state(struct inode *inode, perm_t perm,
-		userid_t userid, uid_t uid, bool under_android,
-		struct sdcardfs_inode_data *top);
+			userid_t userid, uid_t uid);
 extern void get_derived_permission(struct dentry *parent, struct dentry *dentry);
 extern void get_derived_permission_new(struct dentry *parent, struct dentry *dentry, const struct qstr *name);
 extern void fixup_perms_recursive(struct dentry *dentry, struct limit_search *limit);
@@ -561,8 +576,8 @@ static inline int prepare_dir(const char *path_s, uid_t uid, gid_t gid, mode_t m
 		goto out_dput;
 	}
 
-	attrs.ia_uid = uid;
-	attrs.ia_gid = gid;
+	attrs.ia_uid = make_kuid(&init_user_ns, uid);
+	attrs.ia_gid = make_kgid(&init_user_ns, gid);
 	attrs.ia_valid = ATTR_UID | ATTR_GID;
 	mutex_lock(&dent->d_inode->i_mutex);
 	notify_change2(parent.mnt, dent, &attrs);
@@ -632,8 +647,8 @@ static inline void sdcardfs_copy_and_fix_attrs(struct inode *dest, const struct 
 
 	dest->i_mode = (src->i_mode  & S_IFMT) | S_IRWXU | S_IRWXG |
 			S_IROTH | S_IXOTH; /* 0775 */
-	dest->i_uid = SDCARDFS_I(dest)->data->d_uid;
-	dest->i_gid = AID_SDCARD_RW;
+	dest->i_uid = make_kuid(&init_user_ns, SDCARDFS_I(dest)->data->d_uid);
+	dest->i_gid = make_kgid(&init_user_ns, AID_SDCARD_RW);
 	dest->i_rdev = src->i_rdev;
 	dest->i_atime = src->i_atime;
 	dest->i_mtime = src->i_mtime;

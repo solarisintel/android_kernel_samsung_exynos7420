@@ -39,6 +39,7 @@ static void set_cred_user_ns(struct cred *cred, struct user_namespace *user_ns)
 	cred->cap_inheritable = CAP_EMPTY_SET;
 	cred->cap_permitted = CAP_FULL_SET;
 	cred->cap_effective = CAP_FULL_SET;
+	cred->cap_ambient = CAP_EMPTY_SET;
 	cred->cap_bset = CAP_FULL_SET;
 #ifdef CONFIG_KEYS
 	key_put(cred->request_key_auth);
@@ -809,18 +810,18 @@ static bool new_idmap_permitted(const struct file *file,
 	 */
 	if ((new_map->nr_extents == 1) && (new_map->extent[0].count == 1) &&
 	    uid_eq(ns->owner, cred->euid)) {
- 		u32 id = new_map->extent[0].lower_first;
- 		if (cap_setid == CAP_SETUID) {
- 			kuid_t uid = make_kuid(ns->parent, id);
+		u32 id = new_map->extent[0].lower_first;
+		if (cap_setid == CAP_SETUID) {
+			kuid_t uid = make_kuid(ns->parent, id);
 			if (uid_eq(uid, cred->euid))
- 				return true;
+				return true;
 		} else if (cap_setid == CAP_SETGID) {
- 			kgid_t gid = make_kgid(ns->parent, id);
+			kgid_t gid = make_kgid(ns->parent, id);
 			if (!(ns->flags & USERNS_SETGROUPS_ALLOWED) &&
 			    gid_eq(gid, cred->egid))
- 				return true;
- 		}
- 	}
+				return true;
+		}
+	}
 
 	/* Allow anyone to set a mapping that doesn't require privilege */
 	if (!cap_valid(cap_setid))
@@ -835,20 +836,6 @@ static bool new_idmap_permitted(const struct file *file,
 		return true;
 
 	return false;
-}
-
-bool userns_may_setgroups(const struct user_namespace *ns)
-{
-	bool allowed;
-
-	mutex_lock(&id_map_mutex);
-	/* It is not safe to use setgroups until a gid mapping in
-	 * the user namespace has been established.
-	 */
-	allowed = ns->gid_map.nr_extents != 0;
-	mutex_unlock(&id_map_mutex);
-
-	return allowed;
 }
 
 int proc_setgroups_show(struct seq_file *seq, void *v)

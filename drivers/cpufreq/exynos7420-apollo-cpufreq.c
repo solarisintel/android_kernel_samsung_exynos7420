@@ -16,7 +16,7 @@
 #include <linux/slab.h>
 #include <linux/cpufreq.h>
 #include <linux/clk-private.h>
-#include <linux/cpuclocker.h>
+#include <linux/clocker.h>
 
 #include <mach/map.h>
 #include <mach/regs-clock.h>
@@ -73,12 +73,12 @@ static struct apll_freq exynos7420_apll_freq_CA53[] = {
 	 * PLL M, P, S values are NOT used, Instead CCF clk_set_rate is used
 	 */
 	APLL_FREQ(2000, 0, 0, 2, 5, 5, 5, 5, 0, 1, 4, 0,   0, 0, 0),  /* ARM L0: 2.0GHz   */
-	APLL_FREQ(1900, 0, 0, 2, 5, 5, 5, 5, 0, 1, 4, 0,   0, 0, 0),  /* ARM L1: 1.9GMHz  */
-	APLL_FREQ(1800, 0, 0, 2, 5, 5, 5, 5, 0, 1, 4, 0, 150, 2, 0),  /* ARM L2: 1.8GMHz  */
+	APLL_FREQ(1900, 0, 0, 2, 5, 5, 5, 5, 0, 1, 4, 0,   0, 0, 0),  /* ARM L1: 1.9GHz  */
+	APLL_FREQ(1800, 0, 0, 2, 5, 5, 5, 5, 0, 1, 4, 0, 150, 2, 0),  /* ARM L2: 1.8GHz  */
 	APLL_FREQ(1704, 0, 0, 2, 5, 5, 5, 5, 0, 1, 4, 0, 142, 2, 0),  /* ARM L3: 1.7GHz   */
 	APLL_FREQ(1600, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 200, 3, 0),  /* ARM L4: 1.6GHz   */
-	APLL_FREQ(1500, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 250, 4, 0),  /* ARM L5: 1.5GMHz  */
-	APLL_FREQ(1400, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 175, 3, 0),  /* ARM L6: 1.4GMHz  */
+	APLL_FREQ(1500, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 250, 4, 0),  /* ARM L5: 1.5GHz  */
+	APLL_FREQ(1400, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 175, 3, 0),  /* ARM L6: 1.4GHz  */
 	APLL_FREQ(1296, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 108, 2, 0),  /* ARM L7: 1.3GHz   */
 	APLL_FREQ(1200, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0, 100, 2, 0),  /* ARM L8: 1.2GHz   */
 	APLL_FREQ(1104, 0, 0, 2, 5, 5, 5, 5, 0, 1, 3, 0,  92, 2, 0),  /* ARM L9: 1.1GHz   */
@@ -104,26 +104,26 @@ static const unsigned int asv_voltage_7420_CA53[CPUFREQ_LEVEL_END_CA53] = {
 	1248750,	/* L3  1700 */
 	1173750,	/* L4  1600 */
 #else
-	1098750,	/* L0  2000 */
-	1098750,	/* L1  1900 */
-	1098750,	/* L2  1800 */
-	1098750,	/* L3  1700 */
-	1098750,	/* L4  1600 */
+	1168750,	/* L0  2000 */
+	1168750,	/* L1  1900 */
+	1168750,	/* L2  1800 */
+	1168750,	/* L3  1700 */
+	1168750,	/* L4  1600 */
 #endif
-	1098750,	/* L5  1500 */
-	 993750,	/* L6  1400 */
-	 943750,	/* L7  1300 */
-	 906250,	/* L8  1200 */
-	 868750,	/* L9  1100 */
-	 825000,	/* L10 1000 */
-	 787500,	/* L11  900 */
-	 750000,	/* L12  800 */
-	 712500,	/* L13  700 */
-	 675000,	/* L14  600 */
-	 640000,	/* L15  500 */
-	 600000,	/* L16  400 */
-	 545000,	/* L17  300 */
-	 500000,	/* L18  200 */
+	1081250,	/* L5  1500 */
+	1031250,	/* L6  1400 */
+	 981250,	/* L7  1300 */
+	 943750,	/* L8  1200 */
+	 906250,	/* L9  1100 */
+	 862500,	/* L10 1000 */
+	 825000,	/* L11  900 */
+	 787500,	/* L12  800 */
+	 750000,	/* L13  700 */
+	 712500,	/* L14  600 */
+	 675000,	/* L15  500 */
+	 637500,	/* L16  400 */
+	 612500,	/* L17  300 */
+	 587500,	/* L18  200 */
 };
 
 /* Minimum memory throughput in megabytes per second */
@@ -151,19 +151,11 @@ static int exynos7420_region_bus_table_CA53[CPUFREQ_LEVEL_END_CA53][6] = {
 };
 #else
 static int exynos7420_bus_table_CA53[CPUFREQ_LEVEL_END_CA53] = {
-#ifdef CONFIG_EXYNOS7420_OVERCLOCK
-	1424000,		/* 2.0 GHz */
-	1424000,		/* 1.9 GHz */
-	1224000,		/* 1.8 GHz */
-	1224000,		/* 1.7 GHz */
-	1224000,		/* 1.6 GHz */
-#else
 	1026000,		/* 2.0 GHz */
 	1026000,		/* 1.9 GHz */
 	1026000,		/* 1.8 GHz */
 	1026000,		/* 1.7 GHz */
 	1026000,		/* 1.6 GHz */
-#endif
 	1026000,		/* 1.5 GHz */
 	1026000,		/* 1.4 GHz */
 	1026000,		/* 1.3 GHz */
@@ -318,10 +310,10 @@ static void __init set_volt_table_CA53(void)
 	case 12 :
 		max_support_idx_CA53 = L7; break;	/* 1.3GHz */
 	default :
-		max_support_idx_CA53 = EXYNOS7420_CLUSTER0_MAX_LEVEL;	/* 1.5GHz */
+		max_support_idx_CA53 = EXYNOS7420_CPU_MAX_FREQ_LITTLE;
 	}
 
-	min_support_idx_CA53 = EXYNOS7420_CLUSTER0_MIN_LEVEL;	/* 400MHz */
+	min_support_idx_CA53 = EXYNOS7420_CPU_MIN_FREQ_LITTLE;
 
 	pr_info("CPUFREQ of CA53 max_freq : L%d %u khz\n", max_support_idx_CA53,
 		exynos7420_freq_table_CA53[max_support_idx_CA53].frequency);

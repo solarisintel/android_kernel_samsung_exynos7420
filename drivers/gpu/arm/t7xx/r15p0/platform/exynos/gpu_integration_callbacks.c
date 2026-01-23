@@ -151,11 +151,10 @@ void gpu_destroy_context(void *ctx)
 
 	if (kctx->ctx_need_qos)
 	{
-#ifdef CONFIG_SCHED_HMP
-		const struct kbase_pm_policy *const *policy_list;
 		int i, policy_count;
-		struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
-#endif
+		const struct kbase_pm_policy *const *policy_list;
+		struct exynos_context *platform;
+		platform = (struct exynos_context *) kbdev->platform_context;
 #ifdef CONFIG_MALI_DVFS
 		gpu_dvfs_boost_lock(GPU_DVFS_BOOST_UNSET);
 #endif
@@ -261,11 +260,10 @@ int gpu_vendor_dispatch(struct kbase_context *kctx, void * const args, u32 args_
 #ifdef CONFIG_MALI_DVFS
 			struct kbase_uk_custom_command *kgp = (struct kbase_uk_custom_command *)args;
 #endif /* CONFIG_MALI_DVFS */
-#ifdef CONFIG_SCHED_HMP
 			int i, policy_count;
 			const struct kbase_pm_policy *const *policy_list;
-#endif
-			struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+			struct exynos_context *platform;
+			platform = (struct exynos_context *) kbdev->platform_context;
 			if (!kctx->ctx_need_qos) {
 				kctx->ctx_need_qos = true;
 #ifdef CONFIG_SCHED_HMP
@@ -300,11 +298,10 @@ int gpu_vendor_dispatch(struct kbase_context *kctx, void * const args, u32 args_
 #ifdef CONFIG_MALI_DVFS
 			struct kbase_uk_custom_command *kgp = (struct kbase_uk_custom_command*)args;
 #endif /* CONFIG_MALI_DVFS */
-#ifdef CONFIG_SCHED_HMP
 			int i, policy_count;
 			const struct kbase_pm_policy *const *policy_list;
-#endif /* CONFIG_SCHED_HMP */
-			struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+			struct exynos_context *platform;
+			platform = (struct exynos_context *) kbdev->platform_context;
 			if (kctx->ctx_need_qos) {
 				kctx->ctx_need_qos = false;
 #ifdef CONFIG_SCHED_HMP
@@ -508,7 +505,7 @@ int gpu_memory_seq_show(struct seq_file *sfile, void *data)
 			spin_lock(&(element->kctx->mem_pool.pool_lock));
 			each_free_size = element->kctx->mem_pool.cur_size;
 			spin_unlock(&(element->kctx->mem_pool.pool_lock));
-			ret = seq_printf(sfile, "  (%24s), %s-0x%p    %12u  %10zu\n", \
+			ret = seq_printf(sfile, "  (%24s), %s-0x%pK    %12u  %10zu\n", \
 					element->kctx->name, \
 					"kctx", \
 					element->kctx, \

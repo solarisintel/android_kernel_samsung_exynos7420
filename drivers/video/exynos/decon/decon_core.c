@@ -37,6 +37,9 @@
 #include <linux/debugfs.h>
 #include <linux/of_gpio.h>
 #include <linux/irq.h>
+#ifdef CONFIG_STATE_NOTIFIER
+#include <linux/state_notifier.h>
+#endif
 
 #include <mach/regs-clock.h>
 #include <mach/exynos-pm.h>
@@ -128,6 +131,7 @@ static atomic_t extra_vsync_wait;
 
 static void tracing_mark_write( int pid, char id, char* str1, int value )
 {
+#ifdef CONFIG_TRACING
 	char buf[80];
 
 	if(!pid) return;
@@ -147,6 +151,7 @@ static void tracing_mark_write( int pid, char id, char* str1, int value )
 	}
 
 	trace_puts(buf);
+#endif
 }
 /*-----------------------------------------------------------------*/
 
@@ -1856,6 +1861,9 @@ static int decon_blank(int blank_mode, struct fb_info *info)
 			decon_err("failed to disable decon\n");
 			goto blank_exit;
 		}
+#ifdef CONFIG_STATE_NOTIFIER
+		state_suspend();
+#endif
 		break;
 	case FB_BLANK_UNBLANK:
 		DISP_SS_EVENT_LOG(DISP_EVT_UNBLANK, &decon->sd, ktime_set(0, 0));
@@ -1864,6 +1872,9 @@ static int decon_blank(int blank_mode, struct fb_info *info)
 			decon_err("failed to enable decon\n");
 			goto blank_exit;
 		}
+#ifdef CONFIG_STATE_NOTIFIER
+		state_resume();
+#endif
 		break;
 	case FB_BLANK_VSYNC_SUSPEND:
 	case FB_BLANK_HSYNC_SUSPEND:
@@ -2092,16 +2103,12 @@ static inline u32 get_vpp_src_format_opaque(int id, u32 format)
 {
 	switch (format) {
 	case DECON_PIXEL_FORMAT_BGRA_8888:
-		decon_info("vpp(%d), format(0x%x)\n", id, format);
 		return DECON_PIXEL_FORMAT_BGRX_8888;
 	case DECON_PIXEL_FORMAT_RGBA_8888:
-		decon_info("vpp(%d), format(0x%x)\n", id, format);
 		return DECON_PIXEL_FORMAT_RGBX_8888;
 	case DECON_PIXEL_FORMAT_ABGR_8888:
-		decon_info("vpp(%d), format(0x%x)\n", id, format);
 		return DECON_PIXEL_FORMAT_XBGR_8888;
 	case DECON_PIXEL_FORMAT_ARGB_8888:
-		decon_info("vpp(%d), format(0x%x)\n", id, format);
 		return DECON_PIXEL_FORMAT_XRGB_8888;
 	default:
 		return format;

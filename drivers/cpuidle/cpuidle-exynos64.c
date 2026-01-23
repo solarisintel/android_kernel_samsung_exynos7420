@@ -87,7 +87,7 @@ module_param_named(log_en, log_en, uint, 0644);
  * IDLE_C2 : Local CPU power gating
  * IDLE_LPM : Low Power Mode, specified by platform
  */
-enum exynos64_cpuidle_state {
+enum idle_state {
 	IDLE_C1 = 0,
 	IDLE_C2,
 	IDLE_LPM,

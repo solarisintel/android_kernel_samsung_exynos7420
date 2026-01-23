@@ -31,12 +31,6 @@ SUBSYS(cpuacct)
 
 /* */
 
-#if IS_SUBSYS_ENABLED(CONFIG_CGROUP_SCHEDTUNE)
-SUBSYS(schedtune)
-#endif
-
-/* */
-
 #if IS_SUBSYS_ENABLED(CONFIG_MEMCG)
 SUBSYS(mem_cgroup)
 #endif
@@ -87,6 +81,12 @@ SUBSYS(hugetlb)
 
 #ifdef CONFIG_CGROUP_BCACHE
 SUBSYS(bcache)
+#endif
+
+/* */
+
+#if IS_SUBSYS_ENABLED(CONFIG_CGROUP_BFQIO)
+SUBSYS(bfqio)
 #endif
 
 /* */

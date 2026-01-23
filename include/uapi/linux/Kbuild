@@ -1,4 +1,5 @@
 # UAPI Header export list
+header-y += android/
 header-y += byteorder/
 header-y += can/
 header-y += caif/
@@ -230,6 +231,7 @@ header-y += limits.h
 header-y += llc.h
 header-y += loop.h
 header-y += lp.h
+header-y += m2m1shot.h
 header-y += magic.h
 header-y += major.h
 header-y += map_to_7segment.h

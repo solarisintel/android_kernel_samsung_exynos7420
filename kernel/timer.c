@@ -1170,7 +1170,7 @@ static int cascade(struct tvec_base *base, struct tvec *tv, int index)
 static void call_timer_fn(struct timer_list *timer, void (*fn)(unsigned long),
 			  unsigned long data)
 {
-	int preempt_count = preempt_count();
+	int count = preempt_count();
 
 #ifdef CONFIG_LOCKDEP
 	/*
@@ -1199,16 +1199,16 @@ static void call_timer_fn(struct timer_list *timer, void (*fn)(unsigned long),
 
 	lock_map_release(&lockdep_map);
 
-	if (preempt_count != preempt_count()) {
+	if (count != preempt_count()) {
 		WARN_ONCE(1, "timer: %pF preempt leak: %08x -> %08x\n",
-			  fn, preempt_count, preempt_count());
+			  fn, count, preempt_count());
 		/*
 		 * Restore the preempt count. That gives us a decent
 		 * chance to survive and extract information. If the
 		 * callback kept a lock held, bad luck, but not worse
 		 * than the BUG() we had.
 		 */
-		preempt_count() = preempt_count;
+		preempt_count_set(count);
 	}
 }
 
@@ -1749,7 +1749,19 @@ void msleep(unsigned int msecs)
 		timeout = schedule_timeout_uninterruptible(timeout);
 }
 
-EXPORT_SYMBOL(msleep);
+/**
+ * usleep - sleep safely even with waitqueue interruptions
+ * @usecs: Time in microseconds to sleep for
+ */
+void usleep(unsigned int usecs)
+{
+	unsigned long timeout = usecs_to_jiffies(usecs) + 1;
+
+	while (timeout)
+		timeout = schedule_timeout_uninterruptible(timeout);
+}
+
+EXPORT_SYMBOL(usleep);
 
 /**
  * msleep_interruptible - sleep waiting for signals
@@ -1765,6 +1777,21 @@ unsigned long msleep_interruptible(unsigned int msecs)
 }
 
 EXPORT_SYMBOL(msleep_interruptible);
+
+/**
+ * usleep_interruptible - sleep waiting for signals
+ * @usecs: Time in microseconds to sleep for
+ */
+unsigned long usleep_interruptible(unsigned int usecs)
+{
+	unsigned long timeout = usecs_to_jiffies(usecs) + 1;
+
+	while (timeout && !signal_pending(current))
+		timeout = schedule_timeout_interruptible(timeout);
+	return jiffies_to_usecs(timeout);
+}
+
+EXPORT_SYMBOL(usleep_interruptible);
 
 static int __sched do_usleep_range(unsigned long min, unsigned long max)
 {

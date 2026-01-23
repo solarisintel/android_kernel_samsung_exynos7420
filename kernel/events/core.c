@@ -3061,7 +3061,7 @@ find_lively_task_by_vpid(pid_t vpid)
 
 	/* Reuse ptrace permission checks for now. */
 	err = -EACCES;
-	if (!ptrace_may_access(task, PTRACE_MODE_READ_REALCREDS))
+	if (!ptrace_may_access(task, PTRACE_MODE_READ))
 		goto errout;
 
 	return task;
@@ -7087,11 +7087,11 @@ SYSCALL_DEFINE5(perf_event_open,
 		 */
 		synchronize_rcu();
 
-		perf_install_in_context(ctx, group_leader, group_leader->cpu);
+		perf_install_in_context(ctx, group_leader, event->cpu);
 		get_ctx(ctx);
 		list_for_each_entry(sibling, &group_leader->sibling_list,
 				    group_entry) {
-			perf_install_in_context(ctx, sibling, sibling->cpu);
+			perf_install_in_context(ctx, sibling, event->cpu);
 			get_ctx(ctx);
 		}
 	}

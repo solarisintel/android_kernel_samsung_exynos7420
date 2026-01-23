@@ -255,10 +255,8 @@ nfssvc_decode_readargs(struct svc_rqst *rqstp, __be32 *p,
 	len = args->count     = ntohl(*p++);
 	p++; /* totalcount - unused */
 
-	if (!xdr_argsize_check(rqstp, p))
-		return 0;
-
- 	len = min_t(unsigned int, len, NFSSVC_MAXBLKSIZE_V2);
+	if (len > NFSSVC_MAXBLKSIZE_V2)
+		len = NFSSVC_MAXBLKSIZE_V2;
 
 	/* set up somewhere to store response.
 	 * We take pages, put them on reslist and include in iovec
@@ -273,7 +271,7 @@ nfssvc_decode_readargs(struct svc_rqst *rqstp, __be32 *p,
 		v++;
 	}
 	args->vlen = v;
-	return 1;
+	return xdr_argsize_check(rqstp, p);
 }
 
 int
@@ -301,8 +299,6 @@ nfssvc_decode_writeargs(struct svc_rqst *rqstp, __be32 *p,
 	 * bytes.
 	 */
 	hdr = (void*)p - rqstp->rq_arg.head[0].iov_base;
-	if (hdr > rqstp->rq_arg.head[0].iov_len)
-		return 0;
 	dlen = rqstp->rq_arg.head[0].iov_len + rqstp->rq_arg.page_len
 		- hdr;
 
@@ -361,11 +357,9 @@ nfssvc_decode_readlinkargs(struct svc_rqst *rqstp, __be32 *p, struct nfsd_readli
 {
 	if (!(p = decode_fh(p, &args->fh)))
 		return 0;
-	if (!xdr_argsize_check(rqstp, p))
-		return 0;
 	args->buffer = page_address(*(rqstp->rq_next_page++));
 
-	return 1;
+	return xdr_argsize_check(rqstp, p);
 }
 
 int
@@ -401,12 +395,12 @@ nfssvc_decode_readdirargs(struct svc_rqst *rqstp, __be32 *p,
 		return 0;
 	args->cookie = ntohl(*p++);
 	args->count  = ntohl(*p++);
- 	args->count  = min_t(u32, args->count, PAGE_SIZE);
-	if (!xdr_argsize_check(rqstp, p))
-		return 0;
+	if (args->count > PAGE_SIZE)
+		args->count = PAGE_SIZE;
+
 	args->buffer = page_address(*(rqstp->rq_next_page++));
 
-	return 1;
+	return xdr_argsize_check(rqstp, p);
 }
 
 /*

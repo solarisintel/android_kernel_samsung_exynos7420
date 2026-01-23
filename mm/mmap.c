@@ -2093,7 +2093,7 @@ find_vma_prev(struct mm_struct *mm, unsigned long addr,
  * grow-up and grow-down cases.
  */
 static int acct_stack_growth(struct vm_area_struct *vma,
-			     unsigned long size, unsigned long grow)
+			    unsigned long size, unsigned long grow)
 {
 	struct mm_struct *mm = vma->vm_mm;
 	struct rlimit *rlim = current->signal->rlim;
@@ -2152,19 +2152,17 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 	if (!(vma->vm_flags & VM_GROWSUP))
 		return -EFAULT;
 
-	/* Guard against exceeding limits of the address space. */
+	/* Guard against wrapping around to address 0. */
 	address &= PAGE_MASK;
-	if (address >= TASK_SIZE)
-		return -ENOMEM;
+
 	address += PAGE_SIZE;
+	if (!address)
+		return -ENOMEM;
 
 	/* Enforce stack_guard_gap */
 	gap_addr = address + stack_guard_gap;
-
-	/* Guard against overflow */
-	if (gap_addr < address || gap_addr > TASK_SIZE)
-		gap_addr = TASK_SIZE;
-
+	if (gap_addr < address)
+		return -ENOMEM;
 	next = vma->vm_next;
 	if (next && next->vm_start < gap_addr) {
 		if (!(next->vm_flags & VM_GROWSUP))
@@ -2175,7 +2173,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 	/* We must make sure the anon_vma is allocated. */
 	if (unlikely(anon_vma_prepare(vma)))
 		return -ENOMEM;
-
+	
 	/*
 	 * vma->vm_start/vm_end cannot change under us because the caller
 	 * is required to hold the mmap_sem in read mode.  We need the
@@ -2233,7 +2231,7 @@ int expand_downwards(struct vm_area_struct *vma,
 				   unsigned long address)
 {
 	struct vm_area_struct *prev;
-	unsigned long gap_addr;
+	unsigned long gap_addr;	
 	int error;
 
 	address &= PAGE_MASK;

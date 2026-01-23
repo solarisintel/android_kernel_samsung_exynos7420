@@ -187,9 +187,6 @@ struct vfsspi_device_data {
 #ifdef FEATURE_SPI_WAKELOCK
 	struct wake_lock fp_spi_lock;
 	struct wake_lock fp_signal_lock;
-#ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
-	int disable_wake_lock;
-#endif // CONFIG_SENSORS_FINGERPRINT_SYSFS
 #endif
 #endif
 	int sensortype;
@@ -198,9 +195,6 @@ struct vfsspi_device_data {
 #ifdef CONFIG_FB
 	struct notifier_block fb_notifier;
 #endif
-#ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
-	int sysfs_enabled;
-#endif // CONFIG_SENSORS_FINGERPRINT_SYSFS
 };
 
 #ifdef CONFIG_SENSORS_FINGERPRINT_DUALIZATION
@@ -697,9 +691,7 @@ static int vfsspi_set_clk(struct vfsspi_device_data *vfsspi_device,
 
 				kfree(spi_info);
 #ifdef FEATURE_SPI_WAKELOCK
-				if (!vfsspi_device->disable_wake_lock) {
-					wake_lock(&vfsspi_device->fp_spi_lock);
-				}
+				wake_lock(&vfsspi_device->fp_spi_lock);
 #endif
 				vfsspi_device->enabled_clk = true;
 			} else
@@ -829,9 +821,7 @@ static irqreturn_t vfsspi_irq(int irq, void *context)
 			vfsspi_send_drdy_signal(vfsspi_device);
 #ifdef ENABLE_SENSORS_FPRINT_SECURE
 #ifdef FEATURE_SPI_WAKELOCK
-			if (!vfsspi_device->disable_wake_lock) {
-				wake_lock_timeout(&vfsspi_device->fp_signal_lock, 3 * HZ);
-			}
+			wake_lock_timeout(&vfsspi_device->fp_signal_lock, 3 * HZ);
 #endif
 #endif
 			pr_info("%s disableIrq\n", __func__);
@@ -1331,9 +1321,6 @@ static int vfsspi_platformInit(struct vfsspi_device_data *vfsspi_device)
 #endif
 #endif
 
-	vfsspi_device->sysfs_enabled = 1;
-	vfsspi_device->disable_wake_lock = 0;
-
 	pr_info("%s : platformInit success!\n", __func__);
 	return status;
 
@@ -1602,45 +1589,7 @@ static ssize_t vfsspi_retain_store(struct device *dev,
 	}
 	return count;
 }
-#endif // ENABLE_SENSORS_FPRINT_SECURE
-
-#ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
-static ssize_t vfsspi_enabled_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", g_data->sysfs_enabled);
-}
-
-static ssize_t vfsspi_enabled_store(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t count)
-{
-	int val = 0;
-
-	if (g_data == NULL) {
-		pr_err("%s: g_data is NULL.\n", __func__);
-		return -EINVAL;
-	}
-
-	if (sscanf(buf, "%d", &val) != 1) {
-		pr_err("%s. input parameter count was wrong.\n", __func__);
-		return -EINVAL;
-	}
-
-	if (val == 1 && !g_data->sysfs_enabled) {
-		g_data->sysfs_enabled = 1;
-		g_data->disable_wake_lock = 0;
-		vfsspi_ioctl_power_on(g_data);
-	} else if (val == 0 && g_data->sysfs_enabled) {
-		g_data->sysfs_enabled = 0;
-		g_data->disable_wake_lock = 1;
-		vfsspi_ioctl_power_off(g_data);
-	} else {
-		pr_err("%s: input value was not accepted.\n", __func__);
-		return -EINVAL;
-	}
-	return count;
-}
-#endif // CONFIG_SENSORS_FINGERPRINT_SYSFS
+#endif
 
 static DEVICE_ATTR(type_check, S_IRUGO,
 	vfsspi_type_check_show, NULL);
@@ -1653,11 +1602,7 @@ static DEVICE_ATTR(adm, S_IRUGO,
 #ifndef ENABLE_SENSORS_FPRINT_SECURE
 static DEVICE_ATTR(retain_pin, S_IRUGO | S_IWUSR | S_IWGRP,
 	vfsspi_retain_show, vfsspi_retain_store);
-#endif // ENABLE_SENSORS_FPRINT_SECURE
-#ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
-static DEVICE_ATTR(enabled, S_IRUGO | S_IWUSR | S_IWGRP,
-	vfsspi_enabled_show, vfsspi_enabled_store);
-#endif // CONFIG_SENSORS_FINGERPRINT_SYSFS
+#endif
 
 static struct device_attribute *fp_attrs[] = {
 	&dev_attr_type_check,
@@ -1666,16 +1611,7 @@ static struct device_attribute *fp_attrs[] = {
 	&dev_attr_adm,
 #ifndef ENABLE_SENSORS_FPRINT_SECURE
 	&dev_attr_retain_pin,
-#else
-#ifdef FEATURE_SPI_WAKELOCK
-#ifdef CONFIG_SENSORS_FINGERPRINT_SYSFS
-//	&dev_attr_disable_wake_lock,
-#endif // CONFIG_SENSORS_FINGERPRINT_SYSFS
-#endif // FEATURE_SPI_WAKELOCK
-#endif // ENABLE_SENSORS_FPRINT_SECURE
-#if CONFIG_SENSORS_FINGERPRINT_SYSFS
-	&dev_attr_enabled,
-#endif // CONFIG_SENSORS_FINGERPRINT_SYSFS
+#endif
 	NULL,
 };
 #endif

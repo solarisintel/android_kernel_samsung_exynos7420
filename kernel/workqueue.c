@@ -100,10 +100,10 @@ enum {
 
 	/*
 	 * Rescue workers are used only on emergencies and shared by
-	 * all cpus.  Give -20.
+	 * all cpus.  Give MIN_NICE.
 	 */
-	RESCUER_NICE_LEVEL	= -20,
-	HIGHPRI_NICE_LEVEL	= -20,
+	RESCUER_NICE_LEVEL	= MIN_NICE,
+	HIGHPRI_NICE_LEVEL	= MIN_NICE,
 
 	WQ_NAME_LEN		= 24,
 };
@@ -280,7 +280,7 @@ static bool wq_power_efficient = true;
 static bool wq_power_efficient;
 #endif
 
-module_param_named(power_efficient, wq_power_efficient, bool, 0444);
+module_param_named(power_efficient, wq_power_efficient, bool, 0644);
 
 static bool wq_numa_enabled;		/* unbound NUMA affinity enabled */
 
@@ -1352,10 +1352,10 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(wq->flags & __WQ_DRAINING) &&
 	    WARN_ON_ONCE(!is_chained_work(wq)))
 		return;
-retry:
-	if (req_cpu == WORK_CPU_UNBOUND)
-		cpu = raw_smp_processor_id();
 
+	if (req_cpu == WORK_CPU_UNBOUND)
+		cpu = 0;
+retry:
 	/* pwq which will be used unless @work is executing elsewhere */
 	if (!(wq->flags & WQ_UNBOUND))
 		pwq = per_cpu_ptr(wq->cpu_pwqs, cpu);
@@ -1499,7 +1499,7 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(cpu != WORK_CPU_UNBOUND))
 		add_timer_on(timer, cpu);
 	else
-		add_timer(timer);
+		add_timer_on(timer, 0);
 }
 
 /**
@@ -3263,7 +3263,6 @@ static ssize_t wq_nice_show(struct device *dev, struct device_attribute *attr,
 static struct workqueue_attrs *wq_sysfs_prep_attrs(struct workqueue_struct *wq)
 {
 	struct workqueue_attrs *attrs;
-
 	attrs = alloc_workqueue_attrs(GFP_KERNEL);
 	if (!attrs)
 		return NULL;
@@ -3415,7 +3414,7 @@ int workqueue_sysfs_register(struct workqueue_struct *wq)
 	 * attributes breaks ordering guarantee.  Disallow exposing ordered
 	 * workqueues.
 	 */
-	if (WARN_ON(wq->flags & __WQ_ORDERED))
+	if (WARN_ON(wq->flags & __WQ_ORDERED_EXPLICIT))
 		return -EINVAL;
 
 	wq->wq_dev = wq_dev = kzalloc(sizeof(*wq_dev), GFP_KERNEL);
@@ -3502,14 +3501,14 @@ void free_workqueue_attrs(struct workqueue_attrs *attrs)
 struct workqueue_attrs *alloc_workqueue_attrs(gfp_t gfp_mask)
 {
 	struct workqueue_attrs *attrs;
-
+    const unsigned long allowed_cpus = 0x3;
 	attrs = kzalloc(sizeof(*attrs), gfp_mask);
 	if (!attrs)
 		goto fail;
 	if (!alloc_cpumask_var(&attrs->cpumask, gfp_mask))
 		goto fail;
 
-	cpumask_copy(attrs->cpumask, cpu_possible_mask);
+	cpumask_copy(attrs->cpumask, to_cpumask(&allowed_cpus));
 	return attrs;
 fail:
 	free_workqueue_attrs(attrs);
@@ -3980,8 +3979,12 @@ int apply_workqueue_attrs(struct workqueue_struct *wq,
 		return -EINVAL;
 
 	/* creating multiple pwqs breaks ordering guarantee */
-	if (WARN_ON((wq->flags & __WQ_ORDERED) && !list_empty(&wq->pwqs)))
-		return -EINVAL;
+	if (!list_empty(&wq->pwqs)) {
+		if (WARN_ON(wq->flags & __WQ_ORDERED_EXPLICIT))
+			return -EINVAL;
+
+		wq->flags &= ~__WQ_ORDERED;
+	}
 
 	pwq_tbl = kzalloc(wq_numa_tbl_len * sizeof(pwq_tbl[0]), GFP_KERNEL);
 	new_attrs = alloc_workqueue_attrs(GFP_KERNEL);
@@ -4233,6 +4236,16 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 	if ((flags & WQ_POWER_EFFICIENT) && wq_power_efficient)
 		flags |= WQ_UNBOUND;
 
+	/*
+	 * Unbound && max_active == 1 used to imply ordered, which is no
+	 * longer the case on NUMA machines due to per-node pools.  While
+	 * alloc_ordered_workqueue() is the right way to create an ordered
+	 * workqueue, keep the previous behavior to avoid subtle breakages
+	 * on NUMA.
+	 */
+	if ((flags & WQ_UNBOUND) && max_active == 1)
+		flags |= __WQ_ORDERED;
+
 	/* allocate wq and format name */
 	if (flags & WQ_UNBOUND)
 		tbl_size = wq_numa_tbl_len * sizeof(wq->numa_pwq_tbl[0]);
@@ -4421,13 +4434,14 @@ void workqueue_set_max_active(struct workqueue_struct *wq, int max_active)
 	struct pool_workqueue *pwq;
 
 	/* disallow meddling with max_active for ordered workqueues */
-	if (WARN_ON(wq->flags & __WQ_ORDERED))
+	if (WARN_ON(wq->flags & __WQ_ORDERED_EXPLICIT))
 		return;
 
 	max_active = wq_clamp_max_active(max_active, wq->flags, wq->name);
 
 	mutex_lock(&wq->mutex);
 
+	wq->flags &= ~__WQ_ORDERED;
 	wq->saved_max_active = max_active;
 
 	for_each_pwq(pwq, wq)
@@ -4476,7 +4490,7 @@ bool workqueue_congested(int cpu, struct workqueue_struct *wq)
 	rcu_read_lock_sched();
 
 	if (cpu == WORK_CPU_UNBOUND)
-		cpu = smp_processor_id();
+		cpu = 0;
 
 	if (!(wq->flags & WQ_UNBOUND))
 		pwq = per_cpu_ptr(wq->cpu_pwqs, cpu);

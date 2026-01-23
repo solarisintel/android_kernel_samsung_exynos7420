@@ -26,20 +26,24 @@ static const struct file_operations cmdline_proc_fops = {
 
 static void proc_cmdline_set(char *name, char *value)
 {
-	char flag_str[COMMAND_LINE_SIZE];
-	char *flag_substr;
-	char *flag_space_substr;
+	char *flag_pos, *flag_after;
+	char flag_pos_str[COMMAND_LINE_SIZE];
 
-	scnprintf(flag_str, COMMAND_LINE_SIZE, "%s=", name);
-	flag_substr = strstr(updated_command_line, flag_str);
+	scnprintf(flag_pos_str, COMMAND_LINE_SIZE, "%s=", name);
+	
+	flag_pos = strstr(updated_command_line, flag_pos_str);
+	if (flag_pos) {
+		flag_after = strchr(flag_pos, ' ');
+		if (!flag_after)
+			flag_after = "";
 
-	if (flag_substr) {
-		flag_space_substr = strchr(flag_substr, ' ');
-		scnprintf(updated_command_line, COMMAND_LINE_SIZE, "%.*s%s", (int)(flag_substr - updated_command_line), updated_command_line, flag_space_substr + 1);
+		scnprintf(updated_command_line, COMMAND_LINE_SIZE, "%.*s%s=%s%s",
+				(int)(flag_pos - updated_command_line + 1),
+				updated_command_line, name, value, flag_after);
+	} else {
+		// flag was found, insert it
+		scnprintf(updated_command_line, COMMAND_LINE_SIZE, "%s %s=%s", updated_command_line, name, value);
 	}
-
-	// flag was not found, insert it
-	scnprintf(updated_command_line, COMMAND_LINE_SIZE, "%s %s=%s", updated_command_line, name, value);
 }
 
 static int __init proc_cmdline_init(void)
@@ -52,8 +56,6 @@ static int __init proc_cmdline_init(void)
 	proc_cmdline_set("androidboot.boot.flash.locked", "1");
 	proc_cmdline_set("androidboot.boot.ddrinfo", "00000001");
 	proc_cmdline_set("androidboot.crypto.state", "encrypted");
-	proc_cmdline_set("androidboot.warranty_bit", "0");
-	proc_cmdline_set("androidboot.boot.warranty_bit", "0");
 
 	proc_create("cmdline", 0, NULL, &cmdline_proc_fops);
 	return 0;

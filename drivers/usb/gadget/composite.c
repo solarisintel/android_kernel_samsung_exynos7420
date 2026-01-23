@@ -565,7 +565,7 @@ static int bos_desc(struct usb_composite_dev *cdev)
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 	usb_ext->bmAttributes = 0;
 #else
-	usb_ext->bmAttributes = cpu_to_le32(USB_LPM_SUPPORT | USB_BESL_SUPPORT);
+	usb_ext->bmAttributes = cpu_to_le32(USB_LPM_SUPPORT);
 #endif
 
 	/*
@@ -1329,7 +1329,7 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 					cdev->desc.bcdUSB = cpu_to_le16(0x0300);
 					cdev->desc.bMaxPacketSize0 = 9;
 				} else {
-					cdev->desc.bcdUSB = cpu_to_le16(0x0210);
+					cdev->desc.bcdUSB = cpu_to_le16(0x0201);
 				}
 			}
 
@@ -1618,6 +1618,8 @@ static DEVICE_ATTR(suspended, 0444, composite_show_suspended, NULL);
 static void __composite_unbind(struct usb_gadget *gadget, bool unbind_driver)
 {
 	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
+	struct usb_gadget_strings	*gstr = cdev->driver->strings[0];
+	struct usb_string		*dev_str = gstr->strings;
 
 	/* composite_disconnect() must already have been called
 	 * by the underlying peripheral controller driver!
@@ -1637,6 +1639,9 @@ static void __composite_unbind(struct usb_gadget *gadget, bool unbind_driver)
 		cdev->driver->unbind(cdev);
 
 	composite_dev_cleanup(cdev);
+
+	if (dev_str[USB_GADGET_MANUFACTURER_IDX].s == cdev->def_manufacturer)
+		dev_str[USB_GADGET_MANUFACTURER_IDX].s = "";
 
 	kfree(cdev->def_manufacturer);
 	kfree(cdev);
